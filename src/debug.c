@@ -2,4 +2,6 @@
 
 void disassembleChunk(Chunk *chunk, const char *name) {}
 
-int disassembleInstruction(Chunk *chunk, int offset) { return 0; }
+int disassembleInstruction(Chunk *chunk, int offset) {
+    return 0;
+}

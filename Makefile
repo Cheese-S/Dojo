@@ -42,6 +42,10 @@ INC_FLAGS := $(addprefix -I,$(INC_DIRS))
 # These files will have .d instead of .o as the output.
 CPPFLAGS := $(INC_FLAGS) -MMD -MP
 
+.PHONY: build
+
+build: $(BUILD_DIR)/$(TARGET_EXEC)
+
 # The final build step.
 $(BUILD_DIR)/$(TARGET_EXEC): $(OBJS)
 	$(CC) $(OBJS) -o $@ $(LDFLAGS)
@@ -56,6 +60,34 @@ $(BUILD_DIR)/%.cpp.o: %.cpp
 	mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
+.PHONY: test
+
+TESTS_DIR := ./tests
+
+TESTS := $(shell find $(TESTS_DIR) -name '*.cpp' -or -name '*.c')
+
+TESTS_OBJ := $(TESTS:%=$(BUILD_DIR)/%.o)
+
+TESTS_EXEC := $(TESTS:$(TESTS_DIR)/%.c=$(BUILD_DIR)/%)
+
+TESTFLAGS = -lcheck -lm -lpthread -lrt -lsubunit
+
+test: $(TESTS_EXEC)
+	$(TESTS_EXEC)
+
+
+$(TESTS_EXEC): $(TESTS_OBJ) $(OBJS)
+	@mkdir -p $(dir $@)
+	@echo [TEST EXEC] $(TESTS)
+	@echo [BUILDING TEST EXEC] $@
+	@echo [TEST EXEC DIR] $(@D)
+	@echo [CURR DIR] $(shell pwd)
+	$(CC) $(@:build/check_%=build/src/%.c.o) $(@:build%=build/tests/%.c.o) $(CFLAGS) $(CPPFLAGS) $(TESTFLAGS) -o $@
+
+$(TESTS_OBJ):
+	@mkdir -p $(dir $@)
+	@echo [BUILDING TESTS OBJECTES] $@ 
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c $(@:build/%.o=%) -o $@
 
 .PHONY: clean
 clean:

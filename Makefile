@@ -14,7 +14,7 @@ else
 	BUILD_DIR := build/release
 endif
 
-CFLAGS += -Wall -Wextra -Werror -Wno-unused-parameter
+CFLAGS += -Wall -Wextra -Werror -Wno-unused-parameter -Wno-unused-function
 
 TARGET_EXEC := dojo
 
@@ -92,6 +92,10 @@ $(TESTS_OBJ):
 .PHONY: clean
 clean:
 	rm -r $(BUILD_DIR)
+
+.PHONY: run
+run:
+	build/dojo
 
 # Include the .d makefiles. The - at the front suppresses the errors of missing
 # Makefiles. Initially, all the .d files will be missing, and we don't want those

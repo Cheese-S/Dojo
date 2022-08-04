@@ -13,10 +13,17 @@ typedef enum {
 } Opcode;
 
 typedef struct {
+    int capacity;
     int count;
     int *lines;
-    uint8_t *code;
-    // ValueArray constants;
+    uint8_t *codes;
+    ValueArray constants;
 } Chunk;
+
+void initChunk(Chunk *chunk);
+void freeChunk(Chunk *chunk);
+void addCodeToChunk(Chunk *chunk, Opcode code, int line);
+int addConstantToChunk(Chunk *chunk, Value value);
+Value getConstantAtIndex(Chunk *chunk, int index);
 
 #endif

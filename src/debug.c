@@ -20,7 +20,7 @@ void disassembleChunk(Chunk *chunk, const char *name) {
 int disassembleInstruction(Chunk *chunk, int offset) {
     printf("%04d ", offset);
     printLineInfo(chunk, offset);
-    uint8_t instruction = chunk->code[offset];
+    uint8_t instruction = chunk->codes[offset];
     switch (instruction) {
     case OP_CONSTANT:
         return constantInstruction("OP_CONSTANT", chunk, offset);
@@ -51,7 +51,7 @@ static bool isSameLineAsPrevCode(Chunk *chunk, int offset) {
 }
 
 static int constantInstruction(const char *name, Chunk *chunk, int offset) {
-    uint8_t constant = chunk->code[offset + 1];
+    uint8_t constant = chunk->codes[offset + 1];
     printf("%-16s %4d '", name, constant);
     printf("'\n");
     return offset + 2;

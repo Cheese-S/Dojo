@@ -1,4 +1,5 @@
-#include "scanner.h"
+#include "error.h"
+#include "vm.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -25,33 +26,34 @@ int main(int argc, const char *argv[]) {
 
 static void repl() {
     char line[1024];
-
     for (;;) {
         printf("> ");
         if (!fgets(line, sizeof(line), stdin)) {
             printf("\n");
             break;
         }
-        initScanner(line);
-        int line = -1;
-        for (;;) {
-            Token token = scanToken();
-            if (token.line != line) {
-                printf("%4d ", token.line);
-                line = token.line;
-            } else {
-                printf("   | ");
-            }
-            printf("%2d '%.*s'\n", token.type, token.length, token.start);
+        interpret(line);
+        // Token Scan Code
+        // for (;;) {
+        //     Token token = scanToken();
+        //     errorAt(&token, "hello");
+        //     if (token.line != line) {
+        //         printf("%4d ", token.line);
+        //         line = token.line;
+        //     } else {
+        //         printf("   | ");
+        //     }
+        //     printf("%2d '%.*s'\n", token.type, token.length, token.start);
 
-            if (token.type == TOKEN_EOF)
-                break;
-        }
+        //     if (token.type == TOKEN_EOF)
+        //         break;
+        // }
     }
 }
 
 static void runFile(const char *path) {
     char *source = readFile(path);
+    interpret(source);
     free(source);
 }
 

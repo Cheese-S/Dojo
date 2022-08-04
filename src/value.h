@@ -1,5 +1,9 @@
 #include <stdint.h>
 #include <string.h>
+
+#ifndef dojo_value_h
+#define dojo_value_h
+
 typedef uint64_t Value;
 
 #define QNAN ((uint64_t)0x7ffc000000000000)
@@ -32,3 +36,16 @@ static inline double valueToNum(Value value) {
     memcpy(&num, &value, sizeof(Value));
     return num;
 }
+
+typedef struct {
+    int capacity;
+    int count;
+    Value *values;
+} ValueArray;
+
+void initValueArray(ValueArray *arr);
+int writeValueArray(ValueArray *arr, Value value);
+void freeValueArray(ValueArray *arr);
+void printValue(Value val);
+
+#endif

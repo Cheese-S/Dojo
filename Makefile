@@ -64,6 +64,8 @@ $(BUILD_DIR)/%.cpp.o: %.cpp
 
 TESTS_DIR := ./tests
 
+TEST_SCRIPTS := $(shell find $(TEST_DIR) -name '*.sh')
+
 TESTS := $(shell find $(TESTS_DIR) -name '*.cpp' -or -name '*.c')
 
 TESTS_OBJ := $(TESTS:%=$(BUILD_DIR)/%.o)
@@ -74,6 +76,7 @@ TESTFLAGS = -lcheck -lm -lpthread -lrt -lsubunit
 
 test: $(TESTS_EXEC)
 	$(TESTS_EXEC)
+	$(TEST_SCRIPTS)
 
 
 $(TESTS_EXEC): $(TESTS_OBJ) $(OBJS)

@@ -1,5 +1,5 @@
 #!/bin/bash
-DOJO="../../build/dojo"
+DOJO="./build/dojo"
 assert() {
   expected="$1"
   input="$2"
@@ -21,5 +21,6 @@ assert 5 5
 assert 42 42
 assert 36.9 36.9
 
+rm -f test.dojo
 
 echo OK

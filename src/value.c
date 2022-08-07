@@ -6,7 +6,14 @@
 static void growValueArray(ValueArray *arr);
 
 void printValue(Value value) {
-    printf("%g\n", valueToNum(value));
+
+    if (IS_BOOL(value)) {
+        printf(AS_BOOL(value) ? "true" : "false");
+    } else if (IS_NUMBER(value)) {
+        printf("%g", valueToNum(value));
+    } else if (IS_NIL(value)) {
+        printf("nil");
+    }
 }
 
 void initValueArray(ValueArray *arr) {

@@ -25,10 +25,11 @@ static inline Value numToValue(double num) {
 }
 
 #define IS_NIL(value) ((value) == NIL_VAL)
-#define IS_BOOL(value) (((value) | 1) == TRUE_VAL)
+#define IS_BOOL(value) (((value) | 1) == FALSE_VAL)
 #define IS_NUMBER(value) (((value)&QNAN) != QNAN)
 
 #define AS_BOOL(value) ((value) == TRUE_VAL)
+
 #define AS_NUMBER(value) valueToNum(value)
 
 static inline double valueToNum(Value value) {

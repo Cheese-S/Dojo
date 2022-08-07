@@ -8,9 +8,4 @@
 
 #define UINT8_COUNT (UINT8_MAX + 1)
 
-typedef struct Node {
-    int line;
-    Value value;
-} Node;
-
 #endif

@@ -1,6 +1,7 @@
 #ifndef dojo_memory_h
 #define dojo_memory_h
 #include "common.h"
+#include "parser.h"
 #include <stdlib.h>
 
 #define GC_ALLOCATE(type, count)                                               \
@@ -19,6 +20,5 @@
 
 void *gcReallocate(void *ptr, size_t oldSize, size_t newSize);
 void *reallocate(void *ptr, size_t oldSize, size_t newSize);
-Node *newNode();
 
 #endif

@@ -14,9 +14,6 @@ typedef struct {
     int count;
 } VM;
 
-void push(Value value);
-Value pop();
-
 void interpret(const char *source);
 
 #endif

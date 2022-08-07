@@ -26,8 +26,3 @@ void *reallocate(void *ptr, size_t oldSize, size_t newSize) {
     }
     return result;
 }
-
-Node *newNode() {
-    Node *node = ALLOCATE(Node, 1);
-    return node;
-}

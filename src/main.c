@@ -33,6 +33,7 @@ static void repl() {
             break;
         }
         interpret(line);
+        printf("\n");
         // Token Scan Code
         // for (;;) {
         //     Token token = scanToken();

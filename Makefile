@@ -64,9 +64,9 @@ $(BUILD_DIR)/%.cpp.o: %.cpp
 
 TESTS_DIR := ./tests
 
-TEST_SCRIPTS := $(shell find $(TEST_DIR) -name '*.sh')
-
 TESTS := $(shell find $(TESTS_DIR) -name '*.cpp' -or -name '*.c')
+
+TEST_DRIVER := ./tests/scripts/driver.sh
 
 TESTS_OBJ := $(TESTS:%=$(BUILD_DIR)/%.o)
 
@@ -74,10 +74,9 @@ TESTS_EXEC := $(TESTS:$(TESTS_DIR)/%.c=$(BUILD_DIR)/%)
 
 TESTFLAGS = -lcheck -lm -lpthread -lrt -lsubunit
 
-test: $(TESTS_EXEC)
+test: $(TESTS_EXEC) 
 	$(TESTS_EXEC)
-	$(TEST_SCRIPTS)
-
+	$(TEST_DRIVER)
 
 $(TESTS_EXEC): $(TESTS_OBJ) $(OBJS)
 	@mkdir -p $(dir $@)

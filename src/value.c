@@ -1,18 +1,25 @@
 #include "value.h"
 #include "memory.h"
+#include "object.h"
 #include <stdbool.h>
 #include <stdio.h>
 
 static void growValueArray(ValueArray *arr);
 
 void printValue(Value value) {
+    printValueToFile(stdout, value);
+}
 
+void printValueToFile(FILE *f, Value value) {
     if (IS_BOOL(value)) {
-        printf(AS_BOOL(value) ? "true" : "false");
+        fprintf(f, AS_BOOL(value) ? "true" : "false");
     } else if (IS_NUMBER(value)) {
-        printf("%g", valueToNum(value));
+        fprintf(f, "%g", valueToNum(value));
     } else if (IS_NIL(value)) {
-        printf("nil");
+        fprintf(f, "nil");
+    } else if (IS_STRING(value)) {
+        ObjString *str = AS_STRING(value);
+        fprintf(f, "%.*s", str->length, str->str);
     }
 }
 

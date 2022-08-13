@@ -2,6 +2,7 @@
 #define dojo_chunk_h
 
 #include "common.h"
+#include "value.h"
 
 typedef enum {
     OP_ADD,
@@ -11,6 +12,8 @@ typedef enum {
     OP_NOT,
     OP_NEGATE,
     OP_CONSTANT,
+    OP_TEMPLATE_HEAD,
+    OP_TEMPLATE_END,
     OP_TRUE,
     OP_FALSE,
     OP_NIL,

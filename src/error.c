@@ -19,3 +19,17 @@ void errorAt(Token *token, const char *message) {
 
     fprintf(stderr, RED_TEXT(": %s\n"), message);
 }
+
+void scannerError(Token *token, const char *message) {
+    fprintf(stderr, RED_TEXT("[line %d] Error"), token->line);
+
+    if (token->type == TOKEN_EOF) {
+        fprintf(stderr, " at end");
+    } else if (token->type == TOKEN_ERROR) {
+
+    } else {
+        fprintf(stderr, RED_TEXT("at '%.*s'"), token->length, token->start);
+    }
+
+    fprintf(stderr, RED_TEXT(": %s\n"), message);
+}

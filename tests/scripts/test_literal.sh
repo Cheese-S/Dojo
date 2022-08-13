@@ -13,3 +13,12 @@ suite "Boolean Literal"
 assert "false" "false"
 assert "true" "true"
 assert "nil" "nil"
+
+
+suite "String Literal"
+
+assert "string" \"'string'\"
+assert "" \"\"
+assert "" \`\`
+
+suite "Template String"

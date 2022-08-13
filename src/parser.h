@@ -5,8 +5,8 @@
 #include "node.h"
 
 typedef struct {
-    Token previous;
-    Token current;
+    Token *previous;
+    Token *current;
     Node *AST;
     bool hadError;
 } Parser;

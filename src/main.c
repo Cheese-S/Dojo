@@ -1,4 +1,6 @@
 #include "error.h"
+#include "hashmap.h"
+#include "scanner.h"
 #include "vm.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +18,8 @@ int main(int argc, const char *argv[]) {
         repl();
     } else if (argc == 2) {
         runFile(argv[1]);
+    } else if (argc == 3) {
+        hashmap_test();
     } else {
         fprintf(stderr, "Usage: dojo [path]\n");
         exit(64);
@@ -35,18 +39,19 @@ static void repl() {
         interpret(line);
         printf("\n");
         // Token Scan Code
+        // initScanner(line);
+        // int prevLine = -1;
         // for (;;) {
-        //     Token token = scanToken();
-        //     errorAt(&token, "hello");
-        //     if (token.line != line) {
-        //         printf("%4d ", token.line);
-        //         line = token.line;
+        //     Token *token = nextToken();
+        //     if (token->line != prevLine) {
+        //         printf("%4d ", token->line);
+        //         prevLine = token->line;
         //     } else {
         //         printf("   | ");
         //     }
-        //     printf("%2d '%.*s'\n", token.type, token.length, token.start);
+        //     printf("%2d '%.*s'\n", token->type, token->length, token->start);
 
-        //     if (token.type == TOKEN_EOF)
+        //     if (token->type == TOKEN_EOF)
         //         break;
         // }
     }

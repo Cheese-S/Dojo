@@ -66,9 +66,23 @@ static void visitNode(Node *node) {
         return;
     }
     case ND_NUMBER:
+    case ND_STRING:
         emitConstant(node->value);
         return;
-    case ND_STRING:
+    case ND_TEMPLATE_HEAD: {
+        visitNode(node->span);
+        emitConstant(node->value);
+        emitByte(OP_TEMPLATE_HEAD);
+        return;
+    }
+
+    case ND_TEMPLATE_SPAN:
+        if (node->span != NULL) {
+            visitNode(node->span);
+        }
+        emitConstant(node->value);
+        visitNode(node->operand);
+        return;
     case ND_TRUE:
         emitByte(OP_TRUE);
         return;

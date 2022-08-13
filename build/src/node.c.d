@@ -1,14 +1,16 @@
-build/./src/node.c.o: src/node.c src/node.h src/scanner.h src/value.h \
- src/memory.h src/common.h src/parser.h
+build/./src/node.c.o: src/node.c src/node.h src/object.h src/common.h \
+ src/value.h src/scanner.h src/memory.h src/parser.h
 
 src/node.h:
 
-src/scanner.h:
+src/object.h:
+
+src/common.h:
 
 src/value.h:
 
-src/memory.h:
+src/scanner.h:
 
-src/common.h:
+src/memory.h:
 
 src/parser.h:

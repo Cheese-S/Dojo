@@ -2,7 +2,15 @@
 #include "chunk.h"
 #include "compiler.h"
 #include "debug.h"
+#include "hashmap.h"
+#include "object.h"
 #include "value.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+static void run();
+
+static Value concatStrTemplate();
 
 static void push(Value value);
 static Value pop();
@@ -10,6 +18,15 @@ static Value peek(int depth);
 
 VM vm;
 Chunk compilingChunk;
+
+void interpret(const char *source) {
+    initChunk(&compilingChunk);
+    initVM();
+    compile(source, &compilingChunk);
+    vm.ip = compilingChunk.codes;
+    run();
+    freeChunk(&compilingChunk);
+}
 
 void initVM() {
     vm.stackTop = vm.stack;
@@ -24,8 +41,7 @@ static void resetStack() {
 static void run() {
 #define READ_BYTE() (*vm.ip++)
     for (;;) {
-        // disassembleInstruction(&compilingChunk, vm.ip -
-        // compilingChunk.codes);
+        disassembleInstruction(&compilingChunk, vm.ip - compilingChunk.codes);
         uint8_t instruction = READ_BYTE();
         switch (instruction) {
         case OP_ADD: {
@@ -50,6 +66,10 @@ static void run() {
             Value b = pop();
             Value a = pop();
             push(NUMBER_VAL(AS_NUMBER(a) * AS_NUMBER(b)));
+            break;
+        }
+        case OP_TEMPLATE_HEAD: {
+            push(concatStrTemplate());
             break;
         }
         case OP_NEGATE: {
@@ -90,13 +110,24 @@ end:
 #undef READ_BYTE
 }
 
-void interpret(const char *source) {
-    initChunk(&compilingChunk);
-    initVM();
-    compile(source, &compilingChunk);
-    vm.ip = compilingChunk.codes;
-    run();
-    freeChunk(&compilingChunk);
+static Value concatStrTemplate() {
+    FILE *stream;
+    char *buf;
+    size_t len;
+    stream = open_memstream(&buf, &len);
+    if (stream == NULL) {
+        fprintf(stderr, "DOJO ERROR: Running out of memory\n");
+        exit(1);
+    }
+    while (vm.count > 0) {
+        printValueToFile(stream, pop());
+    }
+    fflush(stream);
+    fclose(stream);
+
+    ObjString *str = newObjString(buf, len);
+    markUsingHeap(str);
+    return OBJ_VAL(str);
 }
 
 static void push(Value value) {

@@ -2,7 +2,7 @@ ifeq ($(CPP),true)
 	CFLAGS := -std=c++11
 	C_LANG := -x c++
 else
-	CFLAGS := -std=c99
+	CFLAGS := -std=gnu11
 endif
 
 # Mode configuration.
@@ -84,7 +84,7 @@ $(TESTS_EXEC): $(TESTS_OBJ) $(OBJS)
 	@echo [BUILDING TEST EXEC] $@
 	@echo [TEST EXEC DIR] $(@D)
 	@echo [CURR DIR] $(shell pwd)
-	$(CC) $(@:build/check_%=build/src/%.c.o) $(@:build%=build/tests/%.c.o) $(CFLAGS) $(CPPFLAGS) $(TESTFLAGS) -o $@
+	$(CC) $(@:build/check_%=build/src/%.c.o) build/src/memory.c.o $(@:build%=build/tests/%.c.o) $(CFLAGS) $(CPPFLAGS) $(TESTFLAGS) -o $@
 
 $(TESTS_OBJ):
 	@mkdir -p $(dir $@)

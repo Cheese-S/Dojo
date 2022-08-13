@@ -2,6 +2,7 @@
 #include "error.h"
 #include "memory.h"
 #include "node.h"
+#include "object.h"
 #include "scanner.h"
 #include <stdbool.h>
 #include <stdlib.h>
@@ -39,6 +40,8 @@ static Node *grouping();
 static Node *binary();
 static Node *unary();
 static Node *number();
+static Node *stringTemplate();
+static Node *string();
 static Node *literal();
 static Node *parsePrecedence(Precedence precedence);
 static ParseRule *getRule(TokenType type);
@@ -72,7 +75,8 @@ ParseRule rules[] = {
     [TOKEN_LESS] = {NULL, NULL, PREC_NONE},
     [TOKEN_LESS_EQUAL] = {NULL, NULL, PREC_NONE},
     [TOKEN_IDENTIFIER] = {NULL, NULL, PREC_NONE},
-    [TOKEN_STRING] = {NULL, NULL, PREC_NONE},
+    [TOKEN_STRING] = {string, NULL, PREC_NONE},
+    [TOKEN_PRE_TEMPLATE] = {stringTemplate, NULL, PREC_NONE},
     [TOKEN_NUMBER] = {number, NULL, PREC_NONE},
     [TOKEN_AND] = {NULL, NULL, PREC_NONE},
     [TOKEN_CLASS] = {NULL, NULL, PREC_NONE},
@@ -117,11 +121,11 @@ static Node *expression() {
 static Node *parsePrecedence(Precedence precedence) {
     advance();
 
-    if (parser.previous.type == TOKEN_NEWLINE) {
+    if (parser.previous->type == TOKEN_NEWLINE) {
         return parser.AST;
     }
 
-    PrefixFn prefix = getRule(parser.previous.type)->prefix;
+    PrefixFn prefix = getRule(parser.previous->type)->prefix;
 
     if (prefix == NULL) {
         error("Expected expression");
@@ -130,9 +134,9 @@ static Node *parsePrecedence(Precedence precedence) {
 
     Node *left = prefix();
 
-    while (precedence <= getRule(parser.current.type)->precedence) {
+    while (precedence <= getRule(parser.current->type)->precedence) {
         advance();
-        InfixFn infix = getRule(parser.previous.type)->infix;
+        InfixFn infix = getRule(parser.previous->type)->infix;
         left = infix(left);
     }
 
@@ -146,27 +150,56 @@ static Node *grouping() {
 };
 
 static Node *binary(Node *lhs) {
-    TokenType op = parser.previous.type;
-    int line = parser.previous.line;
+    TokenType op = parser.previous->type;
+    int line = parser.previous->line;
     Node *rhs = parsePrecedence(getRule(op)->precedence + 1);
     return NEW_BINARY(op, line, lhs, rhs);
 };
 
 static Node *unary() {
-    TokenType op = parser.previous.type;
-    int line = parser.previous.line;
+    TokenType op = parser.previous->type;
+    int line = parser.previous->line;
     Node *operand = parsePrecedence(PREC_UNARY);
     return NEW_UNARY(op, line, operand);
 }
 
+static Node *stringTemplate() {
+    Node *head =
+        NEW_TEMPLATE_HEAD(newObjStringInVal(parser.previous->start + 1,
+                                            parser.previous->length - 1),
+                          parser.previous->line);
+    Node *prev = head;
+
+    while (parser.previous->type != TOKEN_AFTER_TEMPLATE) {
+        Node *express = expression();
+        int length = parser.current->type == TOKEN_AFTER_TEMPLATE
+                         ? parser.current->length - 1
+                         : parser.current->length;
+        Node *span = NEW_TEMPLATE_SPAN(
+            express, newObjStringInVal(parser.current->start, length),
+            parser.current->line);
+        prev->span = span;
+        prev = span;
+        advance();
+    }
+
+    return head;
+}
+
+static Node *string() {
+    return NEW_STRING(OBJ_VAL(newObjString(parser.previous->start + 1,
+                                           parser.previous->length - 2)),
+                      parser.previous->line);
+}
+
 static Node *number() {
-    return NEW_NUMBER(NUMBER_VAL(strtod(parser.previous.start, NULL)),
-                      parser.previous.line);
+    return NEW_NUMBER(NUMBER_VAL(strtod(parser.previous->start, NULL)),
+                      parser.previous->line);
 }
 
 static Node *literal() {
-    TokenType type = parser.previous.type;
-    int line = parser.previous.line;
+    TokenType type = parser.previous->type;
+    int line = parser.previous->line;
     if (type == TOKEN_TRUE) {
         return NEW_LITERAL(ND_TRUE, line);
     } else if (type == TOKEN_FALSE) {
@@ -183,15 +216,15 @@ static ParseRule *getRule(TokenType type) {
 static void advance() {
     parser.previous = parser.current;
     for (;;) {
-        parser.current = scanToken();
-        if (parser.current.type != TOKEN_ERROR)
+        parser.current = nextToken();
+        if (parser.current->type != TOKEN_ERROR)
             break;
-        errorAtCurrent(parser.current.start);
+        errorAtCurrent(parser.current->start);
     }
 }
 
 static bool check(TokenType type) {
-    return parser.current.type == type;
+    return parser.current->type == type;
 }
 
 static bool match(TokenType type) {
@@ -202,7 +235,7 @@ static bool match(TokenType type) {
 }
 
 static void consume(TokenType type, const char *message) {
-    if (parser.current.type == type) {
+    if (parser.current->type == type) {
         advance();
         return;
     }
@@ -214,9 +247,9 @@ static void makeNodeHead(Node *node) {
 }
 
 void error(const char *message) {
-    errorAt(&parser.previous, message);
+    errorAt(parser.previous, message);
 }
 
 void errorAtCurrent(const char *message) {
-    errorAt(&parser.current, message);
+    errorAt(parser.current, message);
 }

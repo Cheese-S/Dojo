@@ -3,8 +3,9 @@ assert() {
   expected="$1"
   input="$2"
 
+  echo "$input"
 
-  echo "$input" > test.dojo
+  echo -e "$input" > test.dojo
 
   actual=`$DOJO test.dojo`
 

@@ -31,6 +31,9 @@ typedef enum {
     TOKEN_IDENTIFIER,
     TOKEN_STRING,
     TOKEN_NUMBER,
+    TOKEN_PRE_TEMPLATE,
+    TOKEN_TWEEN_TEMPLATE,
+    TOKEN_AFTER_TEMPLATE,
     // Keywords
     TOKEN_VAR,
     TOKEN_TRUE,
@@ -54,14 +57,16 @@ typedef enum {
     TOKEN_EOF,
 } TokenType;
 
-typedef struct {
+typedef struct Token {
     TokenType type;
     const char *start;
     int length;
     int line;
+    struct Token *next;
 } Token;
 
 void initScanner(const char *source);
-Token scanToken();
+void terminateScanner();
+Token *nextToken();
 
 #endif

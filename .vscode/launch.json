@@ -22,6 +22,28 @@
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "build",
             "args": []
+        },
+        {
+            "name": "C debug test",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/dojo",
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "build",
+            "args": [
+                "1",
+                "2"
+            ]
         }
     ]
 }

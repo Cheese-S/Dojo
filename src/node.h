@@ -1,6 +1,7 @@
 #ifndef dojo_node_h
 #define dojo_node_h
 
+#include "object.h"
 #include "scanner.h"
 #include "value.h"
 
@@ -9,6 +10,8 @@ typedef enum {
     ND_UNARY,
     ND_NUMBER,
     ND_STRING,
+    ND_TEMPLATE_HEAD,
+    ND_TEMPLATE_SPAN,
     ND_TRUE,
     ND_FALSE,
     ND_NIL
@@ -22,6 +25,7 @@ typedef struct Node {
     struct Node *lhs;
     struct Node *rhs;
     struct Node *operand;
+    struct Node *span;
 } Node;
 
 Node *newNode(NodeType type, int line);
@@ -51,6 +55,37 @@ static inline Node *newBinaryNode(TokenType op, int line, Node *lhs,
 static inline Node *newNumberNode(Value value, int line) {
     Node *node = newNode(ND_NUMBER, line);
     node->value = value;
+    return node;
+}
+
+#define NEW_STRING(str, line) newStringNode(str, line)
+
+static inline Node *newStringNode(Value value, int line) {
+    Node *node = newNode(ND_STRING, line);
+    node->value = value;
+    return node;
+}
+
+#define NEW_TEMPLATE_HEAD(literal, line) newTemplateHeadNode(literal, line)
+
+static inline Node *newTemplateHeadNode(Value literal, int line) {
+    Node *node = newNode(ND_TEMPLATE_HEAD, line);
+    node->value = literal;
+    node->line = line;
+    node->span = NULL;
+    return node;
+}
+
+#define NEW_TEMPLATE_SPAN(expression, literal, line)                           \
+    newTemplateSpanNode(expression, literal, line)
+
+static inline Node *newTemplateSpanNode(Node *expression, Value literal,
+                                        int line) {
+    Node *node = newNode(ND_TEMPLATE_SPAN, line);
+    node->value = literal;
+    node->line = line;
+    node->operand = expression;
+    node->span = NULL;
     return node;
 }
 

@@ -2,33 +2,59 @@
 #include <string.h>
 
 #include "common.h"
+#include "memory.h"
 #include "scanner.h"
+
+#define MAX_TEMPLATE_LEVELS 2
+
+#define STR_HELPER(x) #x
+#define STR(x) STR_HELPER(x)
+
+#define BEGIN_TEMPLATE_SCANNING (templateLevel++)
+#define END_TEMPLATE_SCANNING (templateLevel--)
 
 typedef struct {
     const char *start;
     const char *current;
+    Token *sentinel;
+    Token *tail;
+    Token *tokenp;
     int line;
 } Scanner;
 
 Scanner scanner;
 
+static int templateLevel = 0;
+static bool hadTemplateScanningError = false;
+
 static Token EMPTY_TOKEN = {
     .type = TOKEN_EMPTY, .length = 0, .line = 0, .start = NULL};
 
-static Token skipWhiteSpace();
-static Token blockComment();
+static void freeTokens();
 
-static Token identifier();
+static void tokenize();
+static void scanToken();
+static Token *skipWhiteSpace();
+static Token *blockComment();
+
+static void identifier();
 static TokenType identifierType();
 static TokenType checkKeyword();
-static Token number();
-static Token multilineString();
-static Token string();
-static Token emptyToken();
-static Token errorToken();
-static Token makeToken(TokenType type);
+static void number();
 
+static void stringTemplate();
+static void scanBeforeTemplate(bool isTempalteSeen);
+static void scanTemplate();
+
+static void string();
+static Token *emptyToken();
+static Token *errorToken();
+static Token *makeToken(TokenType type);
+static void appendNewToken(Token *token);
+
+static inline void setScannerHeadToCurrent();
 static char advance();
+static char advanceN(int n);
 static char peek();
 static char peekNext();
 static bool match(char expected);
@@ -42,70 +68,148 @@ void initScanner(const char *source) {
     scanner.start = source;
     scanner.current = source;
     scanner.line = 1;
+    scanner.sentinel = emptyToken();
+    scanner.tail = emptyToken();
+    tokenize();
+    scanner.tokenp = scanner.sentinel->next;
 }
 
-Token scanToken() {
-    Token error = skipWhiteSpace();
+void terminateScanner() {
+    freeTokens();
+    scanner.tail = scanner.sentinel;
+    scanner.tokenp = scanner.sentinel;
+    scanner.line = 1;
+}
+
+Token *nextToken() {
+    if (scanner.tokenp->next == NULL)
+        return scanner.tokenp;
+    Token *current = scanner.tokenp;
+    scanner.tokenp = scanner.tokenp->next;
+    return current;
+}
+
+static void freeTokens() {
+    Token *current = scanner.sentinel->next;
+    while (current != NULL) {
+        Token *next = current->next;
+        FREE(Token, current);
+        current = next;
+    }
+}
+
+static void freeNonErrorTokens(Token *oneBeforehead) {
+    Token *prev = oneBeforehead;
+    Token *current = oneBeforehead->next;
+    while (current != NULL) {
+        Token *next = current->next;
+        if (current->type != TOKEN_ERROR) {
+            prev->next = next;
+            FREE(Token, current);
+        } else {
+            prev = current;
+        }
+        current = next;
+    }
+    scanner.tail = prev;
+}
+
+static void tokenize() {
+    while (scanner.tail->type != TOKEN_EOF) {
+        scanToken();
+    }
+}
+
+void scanToken() {
+    Token *error = skipWhiteSpace();
     scanner.start = scanner.current;
 
-    if (error.type != TOKEN_EMPTY) {
-        return error;
+    if (error->type != TOKEN_EMPTY) {
+        appendNewToken(error);
+        return;
     }
 
-    if (isAtEnd())
-        return makeToken(TOKEN_EOF);
+    if (isAtEnd()) {
+        appendNewToken(makeToken(TOKEN_EOF));
+        return;
+    }
 
     char c = advance();
-    if (isAlpha(c))
-        return identifier();
-    if (isDigit(c))
-        return number();
+    if (isAlpha(c)) {
+        identifier();
+        return;
+    }
+    if (isDigit(c)) {
+        number();
+        return;
+    }
 
     switch (c) {
     case '(':
-        return makeToken(TOKEN_LEFT_PAREN);
+        appendNewToken(makeToken(TOKEN_LEFT_PAREN));
+        return;
     case ')':
-        return makeToken(TOKEN_RIGHT_PAREN);
+        appendNewToken(makeToken(TOKEN_RIGHT_PAREN));
+        return;
     case '{':
-        return makeToken(TOKEN_LEFT_BRACE);
+        appendNewToken(makeToken(TOKEN_LEFT_BRACE));
+        return;
     case '}':
-        return makeToken(TOKEN_RIGHT_BRACE);
+        appendNewToken(makeToken(TOKEN_RIGHT_BRACE));
+        return;
     case '\n':
-        return makeToken(TOKEN_NEWLINE);
+        appendNewToken(makeToken(TOKEN_NEWLINE));
+        return;
     case ',':
-        return makeToken(TOKEN_COMMA);
+        appendNewToken(makeToken(TOKEN_COMMA));
+        return;
     case '.':
-        return makeToken(TOKEN_DOT);
+        appendNewToken(makeToken(TOKEN_DOT));
+        return;
     case '-':
-        return makeToken(TOKEN_MINUS);
+        appendNewToken(makeToken(TOKEN_MINUS));
+        return;
     case '+':
-        return makeToken(TOKEN_PLUS);
+        appendNewToken(makeToken(TOKEN_PLUS));
+        return;
     case '*':
-        return makeToken(TOKEN_STAR);
+        appendNewToken(makeToken(TOKEN_STAR));
+        return;
     case '/':
-        return makeToken(TOKEN_SLASH);
+        appendNewToken(makeToken(TOKEN_SLASH));
+        return;
     case '!':
-        return makeToken(match('=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);
+        appendNewToken(makeToken(match('=') ? TOKEN_BANG_EQUAL : TOKEN_BANG));
+        return;
     case '=':
-        return makeToken(match('=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL);
+        appendNewToken(makeToken(match('=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL));
+        return;
     case '<':
-        return makeToken(match('=') ? TOKEN_LESS_EQUAL : TOKEN_LESS);
+        appendNewToken(makeToken(match('=') ? TOKEN_LESS_EQUAL : TOKEN_LESS));
+        return;
     case '>':
-        return makeToken(match('=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
+        appendNewToken(
+            makeToken(match('=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER));
+        return;
     case '&':
-        return makeToken(match('&') ? TOKEN_AND : TOKEN_BITAND);
+        appendNewToken(makeToken(match('&') ? TOKEN_AND : TOKEN_BITAND));
+        return;
     case '|':
-        return makeToken(match('|') ? TOKEN_OR : TOKEN_BITOR);
+        appendNewToken(makeToken(match('|') ? TOKEN_OR : TOKEN_BITOR));
+        return;
     case '"':
-        return string();
+        string();
+        return;
     case '`':
-        return multilineString();
+        stringTemplate();
+        return;
     }
-    return errorToken("Unexpected character");
+    appendNewToken(errorToken("Unexpected character"));
+    return;
 }
 
-static Token skipWhiteSpace() {
-    Token res = emptyToken();
+static Token *skipWhiteSpace() {
+    Token *res = emptyToken();
     for (;;) {
         char c = peek();
         switch (c) {
@@ -122,8 +226,7 @@ static Token skipWhiteSpace() {
                 if (peek() == '\n')
                     advance();
             } else if (peekNext() == '*') {
-                advance();
-                advance();
+                advanceN(2);
                 res = blockComment();
             } else {
                 return emptyToken();
@@ -135,7 +238,7 @@ static Token skipWhiteSpace() {
     }
 }
 
-static Token blockComment() {
+static Token *blockComment() {
     int block = 1;
     while (!isAtEnd()) {
         char c = advance();
@@ -156,10 +259,10 @@ static Token blockComment() {
     return emptyToken();
 }
 
-static Token identifier() {
+static void identifier() {
     while (isAlpha(peek()) || isDigit(peek()))
         advance();
-    return makeToken(identifierType());
+    appendNewToken(makeToken(identifierType()));
 }
 
 static TokenType identifierType() {
@@ -231,22 +334,82 @@ static TokenType checkKeyword(int start, int length, const char *rest,
     return TOKEN_IDENTIFIER;
 }
 
-static Token multilineString() {
+// complexString appends a series of Tokens with the given input `xxxxxxxxx`
+// A string with no template will append only one token TOKEN_STRING
+// A template string, `head ${false} mid ${true} end` is scanned as follows
+// "`head" TOKEN_PRE_TEMPLATE
+// false   TOKEN_FALSE
+// " mid " TOKNE_MID_TEMPLATE
+// true    TOKEN_TRUE
+// " end`" TOKEN_AFTER_TEMPLATE
+
+static void stringTemplate() {
+    Token *beforeScan = scanner.tail;
+    bool isTemplateSeen = false;
     while (peek() != '`' && !isAtEnd()) {
         if (peek() == '\n') {
             scanner.line++;
         }
+
+        if (peek() == '$' && peekNext() == '{') {
+            BEGIN_TEMPLATE_SCANNING;
+            if (templateLevel > MAX_TEMPLATE_LEVELS) {
+                appendNewToken(errorToken("Template string may only go " STR(
+                    MAX_TEMPLATE_LEVELS) " levels deep"));
+                hadTemplateScanningError = true;
+            }
+            scanBeforeTemplate(isTemplateSeen);
+            scanTemplate();
+            isTemplateSeen = true;
+            END_TEMPLATE_SCANNING;
+            continue;
+        }
         advance();
     }
 
-    if (isAtEnd())
-        return errorToken("Unterminated string");
+    if (isAtEnd()) {
+        if (templateLevel > 0 || isTemplateSeen) {
+            hadTemplateScanningError = true;
+        }
+        appendNewToken(errorToken("Unterminated template string"));
+    }
 
-    advance();
-    return makeToken(TOKEN_STRING);
+    if (templateLevel == 0 && hadTemplateScanningError) {
+        freeNonErrorTokens(beforeScan);
+        hadTemplateScanningError = false;
+        match('`');
+        return;
+    }
+
+    match('`');
+
+    TokenType endTemplateType =
+        isTemplateSeen ? TOKEN_AFTER_TEMPLATE : TOKEN_STRING;
+    appendNewToken(makeToken(endTemplateType));
 }
 
-static Token string() {
+static void scanBeforeTemplate(bool isTemplateSeen) {
+    TokenType nonTemplateType =
+        isTemplateSeen ? TOKEN_TWEEN_TEMPLATE : TOKEN_PRE_TEMPLATE;
+    appendNewToken(makeToken(nonTemplateType));
+    advanceN(2);
+    setScannerHeadToCurrent();
+}
+
+static void scanTemplate(bool *hadError) {
+    while (peek() != '}' && !isAtEnd()) {
+        scanToken();
+        if (scanner.tail->type == TOKEN_ERROR) {
+            hadTemplateScanningError = true;
+        }
+    }
+
+    match('}');
+
+    setScannerHeadToCurrent();
+}
+
+static void string() {
     bool containNewLine = false;
     while (peek() != '"' && !isAtEnd()) {
         if (peek() == '\n') {
@@ -256,16 +419,20 @@ static Token string() {
         advance();
     }
 
-    if (isAtEnd())
-        return errorToken("Unterminated string");
-    if (containNewLine)
-        return errorToken("Newline character '\\n' in string");
+    if (isAtEnd()) {
+        appendNewToken(errorToken("Unterminated string literal"));
+        return;
+    }
+    if (containNewLine) {
+        appendNewToken(errorToken("Newline character '\\n' in string"));
+        return;
+    }
 
     advance();
-    return makeToken(TOKEN_STRING);
+    appendNewToken(makeToken(TOKEN_STRING));
 }
 
-static Token number() {
+static void number() {
     while (isDigit(peek())) {
         advance();
     }
@@ -278,33 +445,48 @@ static Token number() {
         }
     }
 
-    return makeToken(TOKEN_NUMBER);
+    appendNewToken(makeToken(TOKEN_NUMBER));
 }
 
-static Token errorToken(const char *msg) {
-    Token token;
-    token.type = TOKEN_ERROR;
-    token.start = msg;
-    token.length = strlen(msg);
-    token.line = scanner.line;
+static Token *errorToken(const char *msg) {
+    Token *token = ALLOCATE(Token, 1);
+    token->type = TOKEN_ERROR;
+    token->start = msg;
+    token->length = strlen(msg);
+    token->line = scanner.line;
+    token->next = NULL;
     return token;
 }
 
-static Token emptyToken() {
-    return EMPTY_TOKEN;
+static Token *emptyToken() {
+    return &EMPTY_TOKEN;
 }
 
-static Token makeToken(TokenType type) {
-    Token token;
-    token.type = type;
-    token.start = scanner.start;
-    token.length = (int)(scanner.current - scanner.start);
-    token.line = scanner.line;
+static void appendNewToken(Token *token) {
+    scanner.tail->next = token;
+    scanner.tail = token;
+}
+
+static Token *makeToken(TokenType type) {
+    Token *token = ALLOCATE(Token, 1);
+    token->type = type;
+    token->start = scanner.start;
+    token->length = (int)(scanner.current - scanner.start);
+    token->line = scanner.line;
     return token;
+}
+
+static inline void setScannerHeadToCurrent() {
+    scanner.start = scanner.current;
 }
 
 static char advance() {
     scanner.current++;
+    return scanner.current[-1];
+}
+
+static char advanceN(int n) {
+    scanner.current = scanner.current + n;
     return scanner.current[-1];
 }
 

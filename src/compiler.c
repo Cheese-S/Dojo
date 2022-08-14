@@ -1,16 +1,18 @@
 #include "compiler.h"
 #include "chunk.h"
 #include "common.h"
+#include "memory.h"
 #include "node.h"
 #include "parser.h"
 #include "scanner.h"
 #include "vm.h"
 #include <stdint.h>
-static void initCompiler();
 static Chunk *currentChunk();
 
-static void visitAST(Node *node);
-static void visitNode(Node *node);
+static void compileAST(Node *node);
+static void compileNode(Node *node);
+static void freeAST(Node *AST);
+static void freeNode(Node *node);
 
 static void emitConstant(Value value);
 static uint8_t getConstantChunkIndex(Value constant);
@@ -19,35 +21,75 @@ static void emitByte(uint8_t byte);
 
 Compiler compiler;
 
-static void initCompiler(Chunk *chunk) {
+void initCompiler(Chunk *chunk) {
     compiler.compilingChunk = chunk;
 }
 
-static Chunk *currentChunk() {
-    return compiler.compilingChunk;
+void terminateCompiler() {
+    freeAST(compiler.AST);
+    terminateParser();
 }
 
 void compile(const char *source, Chunk *chunk) {
     initParser(source);
     initCompiler(chunk);
-    Node *root = parse(source);
-    visitAST(root);
+    compiler.AST = parse(source);
+    compileAST(compiler.AST);
     emitByte(OP_RETURN);
 }
 
-static void visitAST(Node *node) {
-    visitNode(node);
+static void freeAST(Node *AST) {
+    freeNode(AST);
 }
 
-static void visitNode(Node *node) {
+static void freeNode(Node *node) {
     if (node == NULL)
         return;
 
     switch (node->type) {
+    case ND_BINARY:
+        freeNode(node->lhs);
+        freeNode(node->rhs);
+        FREE(Node, node);
+        return;
+    case ND_TEMPLATE_HEAD:
+        freeNode(node->span);
+        FREE(Node, node);
+        return;
+    case ND_TEMPLATE_SPAN:
+        freeNode(node->span);
+        freeNode(node->operand);
+        FREE(Node, node);
+        return;
+    case ND_UNARY:
+        freeNode(node->operand);
+        FREE(Node, node);
+        return;
+    case ND_STRING:
+    case ND_NUMBER:
+    case ND_TRUE:
+    case ND_FALSE:
+    case ND_NIL:
+        FREE(Node, node);
+        return;
+    }
+}
+
+static void compileAST(Node *AST) {
+    compileNode(AST);
+}
+
+static void compileNode(Node *node) {
+    if (node == NULL)
+        return;
+
+    compiler.currentCompiling = node;
+
+    switch (node->type) {
     case ND_BINARY: {
         TokenType op = node->op;
-        visitNode(node->lhs);
-        visitNode(node->rhs);
+        compileNode(node->lhs);
+        compileNode(node->rhs);
         if (op == TOKEN_PLUS) {
             emitByte(OP_ADD);
         } else if (op == TOKEN_MINUS) {
@@ -60,7 +102,7 @@ static void visitNode(Node *node) {
         return;
     }
     case ND_UNARY: {
-        visitNode(node->operand);
+        compileNode(node->operand);
         Opcode code = node->op == TOKEN_BANG ? OP_NOT : OP_NEGATE;
         emitByte(code);
         return;
@@ -70,18 +112,18 @@ static void visitNode(Node *node) {
         emitConstant(node->value);
         return;
     case ND_TEMPLATE_HEAD: {
-        visitNode(node->span);
+        compileNode(node->span);
         emitConstant(node->value);
-        emitByte(OP_TEMPLATE_HEAD);
+        emitByte(OP_TEMPLATE);
         return;
     }
 
     case ND_TEMPLATE_SPAN:
         if (node->span != NULL) {
-            visitNode(node->span);
+            compileNode(node->span);
         }
         emitConstant(node->value);
-        visitNode(node->operand);
+        compileNode(node->operand);
         return;
     case ND_TRUE:
         emitByte(OP_TRUE);
@@ -109,5 +151,9 @@ static void emitBytes(uint8_t byte1, uint8_t byte2) {
 }
 
 static void emitByte(uint8_t byte) {
-    addCodeToChunk(currentChunk(), byte, 0);
+    addCodeToChunk(currentChunk(), byte, compiler.currentCompiling->line);
+}
+
+static Chunk *currentChunk() {
+    return compiler.compilingChunk;
 }

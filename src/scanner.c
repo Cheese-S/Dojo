@@ -28,7 +28,7 @@ static int templateLevel = 0;
 static bool hadTemplateScanningError = false;
 
 static Token EMPTY_TOKEN = {
-    .type = TOKEN_EMPTY, .length = 0, .line = 0, .start = NULL};
+    .type = TOKEN_EMPTY, .length = 0, .line = 0, .start = NULL, .next = NULL};
 
 static void freeTokens();
 
@@ -43,6 +43,7 @@ static TokenType checkKeyword();
 static void number();
 
 static void stringTemplate();
+static bool isScanningTemplateString(bool isTemplateSeen);
 static void scanBeforeTemplate(bool isTempalteSeen);
 static void scanTemplate();
 
@@ -192,11 +193,17 @@ void scanToken() {
             makeToken(match('=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER));
         return;
     case '&':
-        appendNewToken(makeToken(match('&') ? TOKEN_AND : TOKEN_BITAND));
-        return;
+        if (match('&')) {
+            appendNewToken(makeToken(TOKEN_AND));
+            return;
+        }
+        break;
     case '|':
-        appendNewToken(makeToken(match('|') ? TOKEN_OR : TOKEN_BITOR));
-        return;
+        if (match('|')) {
+            appendNewToken(makeToken(TOKEN_OR));
+            return;
+        }
+        break;
     case '"':
         string();
         return;
@@ -334,7 +341,7 @@ static TokenType checkKeyword(int start, int length, const char *rest,
     return TOKEN_IDENTIFIER;
 }
 
-// complexString appends a series of Tokens with the given input `xxxxxxxxx`
+// stringTemplate appends a series of Tokens with the given input `xxxxxxxxx`
 // A string with no template will append only one token TOKEN_STRING
 // A template string, `head ${false} mid ${true} end` is scanned as follows
 // "`head" TOKEN_PRE_TEMPLATE
@@ -368,7 +375,7 @@ static void stringTemplate() {
     }
 
     if (isAtEnd()) {
-        if (templateLevel > 0 || isTemplateSeen) {
+        if (isScanningTemplateString(isTemplateSeen)) {
             hadTemplateScanningError = true;
         }
         appendNewToken(errorToken("Unterminated template string"));
@@ -403,10 +410,12 @@ static void scanTemplate(bool *hadError) {
             hadTemplateScanningError = true;
         }
     }
-
     match('}');
-
     setScannerHeadToCurrent();
+}
+
+static bool isScanningTemplateString(bool isTemplateSeen) {
+    return templateLevel > 0 || isTemplateSeen;
 }
 
 static void string() {

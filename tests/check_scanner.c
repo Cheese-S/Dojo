@@ -28,7 +28,7 @@ START_TEST(test_scanner_single_char_token) {
 END_TEST
 
 START_TEST(test_scanner_one_or_two_char_token) {
-    initScanner("! != = == > >= < <= & && | ||");
+    initScanner("! != = == > >= < <= && ||");
     ck_assert(nextToken()->type == TOKEN_BANG);
     ck_assert(nextToken()->type == TOKEN_BANG_EQUAL);
     ck_assert(nextToken()->type == TOKEN_EQUAL);
@@ -37,9 +37,7 @@ START_TEST(test_scanner_one_or_two_char_token) {
     ck_assert(nextToken()->type == TOKEN_GREATER_EQUAL);
     ck_assert(nextToken()->type == TOKEN_LESS);
     ck_assert(nextToken()->type == TOKEN_LESS_EQUAL);
-    ck_assert(nextToken()->type == TOKEN_BITAND);
     ck_assert(nextToken()->type == TOKEN_AND);
-    ck_assert(nextToken()->type == TOKEN_BITOR);
     ck_assert(nextToken()->type == TOKEN_OR);
 }
 END_TEST

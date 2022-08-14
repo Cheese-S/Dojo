@@ -8,10 +8,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+static void terminateVM();
+
 static void run();
 
-static Value concatStrTemplate();
+static Value makeStrTemplate();
 
+static void resetStack();
 static void push(Value value);
 static Value pop();
 static Value peek(int depth);
@@ -26,16 +29,18 @@ void interpret(const char *source) {
     vm.ip = compilingChunk.codes;
     run();
     freeChunk(&compilingChunk);
+    // terminateCompiler();
+    // terminateVM();
 }
 
 void initVM() {
-    vm.stackTop = vm.stack;
-    vm.count = 0;
+    resetStack();
+    vm.objs = NULL;
 }
 
-static void resetStack() {
-    vm.stackTop = vm.stack;
-    vm.count = 0;
+static void terminateVM() {
+    freeObjs(vm.objs);
+    freeMap(&vm.stringLiterals);
 }
 
 static void run() {
@@ -68,8 +73,8 @@ static void run() {
             push(NUMBER_VAL(AS_NUMBER(a) * AS_NUMBER(b)));
             break;
         }
-        case OP_TEMPLATE_HEAD: {
-            push(concatStrTemplate());
+        case OP_TEMPLATE: {
+            push(makeStrTemplate());
             break;
         }
         case OP_NEGATE: {
@@ -110,7 +115,7 @@ end:
 #undef READ_BYTE
 }
 
-static Value concatStrTemplate() {
+static Value makeStrTemplate() {
     FILE *stream;
     char *buf;
     size_t len;
@@ -128,6 +133,11 @@ static Value concatStrTemplate() {
     ObjString *str = newObjString(buf, len);
     markUsingHeap(str);
     return OBJ_VAL(str);
+}
+
+static void resetStack() {
+    vm.stackTop = vm.stack;
+    vm.count = 0;
 }
 
 static void push(Value value) {

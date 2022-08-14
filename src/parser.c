@@ -104,6 +104,10 @@ void initParser(const char *source) {
     parser.AST = NULL;
 }
 
+void terminateParser() {
+    terminateScanner();
+}
+
 Node *parse(const char *source) {
     advance();
 

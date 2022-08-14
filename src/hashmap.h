@@ -16,6 +16,7 @@ typedef struct {
 } Hashmap;
 
 void initMap(Hashmap *map);
+void freeMap(Hashmap *map);
 bool mapPut(Hashmap *map, ObjString *key, Value value);
 bool mapGet(Hashmap *map, ObjString *key, Value *receiver);
 ObjString *mapFindString(Hashmap *map, const char *str, int len, uint32_t hash);

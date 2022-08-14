@@ -18,8 +18,6 @@ int main(int argc, const char *argv[]) {
         repl();
     } else if (argc == 2) {
         runFile(argv[1]);
-    } else if (argc == 3) {
-        hashmap_test();
     } else {
         fprintf(stderr, "Usage: dojo [path]\n");
         exit(64);

@@ -7,6 +7,7 @@
     (type *)allocateObj(sizeof(type), objectType)
 
 static Obj *allocateObj(size_t size, ObjType type);
+static void freeObj(Obj *obj);
 static ObjString *getInternedString(const char *str, int len);
 static ObjString *internString(const char *str, int len);
 static void initObjString(ObjString *objstr, const char *str, int len);
@@ -14,7 +15,30 @@ static void initObjString(ObjString *objstr, const char *str, int len);
 static Obj *allocateObj(size_t size, ObjType type) {
     Obj *object = gcReallocate(NULL, 0, size);
     object->type = type;
+    object->next = vm.objs;
+    vm.objs = object;
     return object;
+}
+
+void freeObjs(Obj *head) {
+    Obj *current = head;
+    while (current) {
+        Obj *next = current->next;
+        freeObj(current);
+        current = next;
+    }
+}
+
+static void freeObj(Obj *obj) {
+    switch (obj->type) {
+    case OBJ_STRING: {
+        ObjString *str = (ObjString *)obj;
+        if (str->isUsingHeap) {
+            FREE_ARRAY(char, (char *)str->str, str->length);
+        }
+        GC_FREE(ObjString, obj);
+    }
+    }
 }
 
 void markUsingHeap(ObjString *str) {

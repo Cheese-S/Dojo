@@ -12,6 +12,7 @@ typedef struct {
 } Parser;
 
 void initParser(const char *source);
+void terminateParser();
 Node *parse();
 
 void error(const char *message);

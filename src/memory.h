@@ -8,6 +8,8 @@
     (type *)gcReallocate(NULL, 0, sizeof(type) * count);
 #define ALLOCATE(type, count) (type *)reallocate(NULL, 0, sizeof(type) * count)
 
+#define GC_FREE(type, pointer) gcReallocate(pointer, sizeof(type), 0)
+
 #define FREE(type, pointer) reallocate(pointer, sizeof(type), 0)
 
 #define IS_EXCEEDING_CAPACITY(count, capacity) ((capacity) < (count + 1))

@@ -3,6 +3,7 @@
 
 #include "common.h"
 #include "hashmap.h"
+#include "object.h"
 #include "value.h"
 
 #define FRAME_MAX 256
@@ -11,9 +12,10 @@
 typedef struct {
     Value stack[STACK_MAX];
     Value *stackTop;
-    Hashmap stringLiterals;
     uint8_t *ip;
     int count;
+    Hashmap stringLiterals;
+    Obj *objs;
 } VM;
 
 extern VM vm;

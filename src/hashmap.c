@@ -11,6 +11,7 @@
 #define TOMBSTONE ((void *)-1)
 #define IS_EMPTY_ENTRY(entry) (entry->key == NULL)
 #define IS_TOMBSTONE(entry) (entry->key == TOMBSTONE)
+
 #define STR_HELPER(x) #x
 #define STR(x) STR_HELPER(x)
 
@@ -26,6 +27,10 @@ void initMap(Hashmap *map) {
     map->count = 0;
     map->capacity = 0;
     map->entries = NULL;
+}
+
+void freeMap(Hashmap *map) {
+    FREE_ARRAY(Entry, map->entries, map->capacity);
 }
 
 bool mapGet(Hashmap *map, ObjString *key, Value *receiver) {

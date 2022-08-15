@@ -4,14 +4,22 @@
 #include "node.h"
 #include "object.h"
 #include "scanner.h"
+#include "value.h"
 #include <stdbool.h>
 #include <stdlib.h>
 
 Parser parser;
 
+Node SENTINEL = {.line = -1,
+                 .value = NIL_VAL,
+                 .type = ND_EMPTY,
+                 .op = TOKEN_EMPTY,
+                 .nextStmt = NULL};
+
 typedef enum {
     PREC_NONE,
     PREC_ASSIGNMENT, // =
+    PREC_TERNARY,    // ?:
     PREC_OR,         // ||
     PREC_AND,        // &&
     PREC_EQUALITY,   // == !=
@@ -35,8 +43,22 @@ typedef struct {
     Precedence precedence;
 } ParseRule;
 
+static void appendToStmts(Node *stmt);
+
+/* -------------------------------- STATEMENT ------------------------------- */
+
+static Node *declaration();
+static Node *stmt();
+static Node *printStmt();
+static Node *expressionStmt();
+
+static void expectStmtEnd(const char *str);
+
+/* ------------------------------- EXPRESSION ------------------------------- */
+
 static Node *expression();
 static Node *grouping();
+static Node *ternary();
 static Node *binary();
 static Node *unary();
 static Node *number();
@@ -49,10 +71,7 @@ static ParseRule *getRule(TokenType type);
 static void advance();
 static bool check(TokenType type);
 static bool match(TokenType type);
-static void consume(TokenType type, const char *message);
-
-static void initNode(Node *node, NodeType type, int line);
-static void makeNodeHead(Node *node);
+static bool consume(TokenType type, const char *message);
 
 ParseRule rules[] = {
     [TOKEN_LEFT_PAREN] = {grouping, NULL, PREC_NONE},
@@ -66,6 +85,7 @@ ParseRule rules[] = {
     [TOKEN_NEWLINE] = {NULL, NULL, PREC_NONE},
     [TOKEN_SLASH] = {NULL, binary, PREC_FACTOR},
     [TOKEN_STAR] = {NULL, binary, PREC_FACTOR},
+    [TOKEN_QUESTION] = {NULL, ternary, PREC_TERNARY},
     [TOKEN_BANG] = {unary, NULL, PREC_UNARY},
     [TOKEN_BANG_EQUAL] = {NULL, NULL, PREC_NONE},
     [TOKEN_EQUAL] = {NULL, NULL, PREC_NONE},
@@ -101,7 +121,8 @@ ParseRule rules[] = {
 void initParser(const char *source) {
     initScanner(source);
     parser.hadError = false;
-    parser.AST = NULL;
+    parser.stmts = &SENTINEL;
+    parser.tail = parser.stmts;
 }
 
 void terminateParser() {
@@ -112,10 +133,46 @@ Node *parse(const char *source) {
     advance();
 
     while (!match(TOKEN_EOF)) {
-        parser.AST = expression();
+        appendToStmts(declaration());
     }
 
-    return parser.AST;
+    return parser.stmts->nextStmt;
+}
+
+static void appendToStmts(Node *stmt) {
+    parser.tail->nextStmt = stmt;
+    parser.tail = stmt;
+}
+
+static Node *declaration() {
+    return stmt();
+}
+
+static Node *stmt() {
+    if (match(TOKEN_PRINT)) {
+        return printStmt();
+    } else {
+        return expressionStmt();
+    }
+}
+
+static Node *printStmt() {
+    int line = parser.previous->line;
+    Node *express = expression();
+    expectStmtEnd("Expect a new line character after a print statement");
+    return NEW_PRINT(express, line);
+}
+
+static Node *expressionStmt() {
+    Node *express = expression();
+    expectStmtEnd("Expect a newline character after a expression statement");
+    return express;
+}
+
+static void expectStmtEnd(const char *msg) {
+    if (check(TOKEN_EOF))
+        return;
+    consume(TOKEN_NEWLINE, msg);
 }
 
 static Node *expression() {
@@ -124,10 +181,6 @@ static Node *expression() {
 
 static Node *parsePrecedence(Precedence precedence) {
     advance();
-
-    if (parser.previous->type == TOKEN_NEWLINE) {
-        return parser.AST;
-    }
 
     PrefixFn prefix = getRule(parser.previous->type)->prefix;
 
@@ -152,6 +205,14 @@ static Node *grouping() {
     consume(TOKEN_RIGHT_PAREN, "Expect ')' after expression");
     return node;
 };
+
+static Node *ternary(Node *condition) {
+    int line = parser.previous->line;
+    Node *thenBranch = expression();
+    consume(TOKEN_COLON, "Expect ':' after expression");
+    Node *elseBranch = parsePrecedence(getRule(TOKEN_QUESTION)->precedence - 1);
+    return NEW_TERNARY(condition, thenBranch, elseBranch, line);
+}
 
 static Node *binary(Node *lhs) {
     TokenType op = parser.previous->type;
@@ -238,16 +299,13 @@ static bool match(TokenType type) {
     return true;
 }
 
-static void consume(TokenType type, const char *message) {
+static bool consume(TokenType type, const char *message) {
     if (parser.current->type == type) {
         advance();
-        return;
+        return true;
     }
     errorAtCurrent(message);
-}
-
-static void makeNodeHead(Node *node) {
-    parser.AST = node;
+    return false;
 }
 
 void error(const char *message) {

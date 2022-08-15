@@ -12,4 +12,5 @@ Node *newNode(NodeType type, int line) {
 static void initNode(Node *node, NodeType type, int line) {
     node->line = line;
     node->type = type;
+    node->nextStmt = NULL;
 }

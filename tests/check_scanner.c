@@ -28,7 +28,9 @@ START_TEST(test_scanner_single_char_token) {
 END_TEST
 
 START_TEST(test_scanner_one_or_two_char_token) {
-    initScanner("! != = == > >= < <= && ||");
+    initScanner("? : ! != = == > >= < <= && ||");
+    ck_assert(nextToken()->type == TOKEN_QUESTION);
+    ck_assert(nextToken()->type == TOKEN_COLON);
     ck_assert(nextToken()->type == TOKEN_BANG);
     ck_assert(nextToken()->type == TOKEN_BANG_EQUAL);
     ck_assert(nextToken()->type == TOKEN_EQUAL);

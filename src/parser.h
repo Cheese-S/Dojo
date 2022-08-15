@@ -7,7 +7,8 @@
 typedef struct {
     Token *previous;
     Token *current;
-    Node *AST;
+    Node *stmts;
+    Node *tail;
     bool hadError;
 } Parser;
 

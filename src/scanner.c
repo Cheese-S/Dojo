@@ -159,7 +159,10 @@ void scanToken() {
         appendNewToken(makeToken(TOKEN_RIGHT_BRACE));
         return;
     case '\n':
-        appendNewToken(makeToken(TOKEN_NEWLINE));
+        scanner.line++;
+        if (scanner.tail->type != TOKEN_NEWLINE) {
+            appendNewToken(makeToken(TOKEN_NEWLINE));
+        }
         return;
     case ',':
         appendNewToken(makeToken(TOKEN_COMMA));
@@ -204,6 +207,12 @@ void scanToken() {
             return;
         }
         break;
+    case '?':
+        appendNewToken(makeToken(TOKEN_QUESTION));
+        return;
+    case ':':
+        appendNewToken(makeToken(TOKEN_COLON));
+        return;
     case '"':
         string();
         return;

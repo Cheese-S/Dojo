@@ -14,6 +14,8 @@ typedef enum {
     TOKEN_PLUS,
     TOKEN_SLASH,
     TOKEN_STAR,
+    TOKEN_QUESTION,
+    TOKEN_COLON,
     // One or two character token
     TOKEN_BANG,
     TOKEN_BANG_EQUAL,

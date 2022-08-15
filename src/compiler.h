@@ -6,7 +6,7 @@
 
 typedef struct {
     Chunk *compilingChunk;
-    Node *AST;
+    Node *script;
     Node *currentCompiling;
 } Compiler;
 

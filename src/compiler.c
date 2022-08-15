@@ -9,9 +9,9 @@
 #include <stdint.h>
 static Chunk *currentChunk();
 
-static void compileAST(Node *node);
+static void compileScript(Node *node);
 static void compileNode(Node *node);
-static void freeAST(Node *AST);
+static void freeScript(Node *AST);
 static void freeNode(Node *node);
 
 static void emitConstant(Value value);
@@ -26,20 +26,25 @@ void initCompiler(Chunk *chunk) {
 }
 
 void terminateCompiler() {
-    freeAST(compiler.AST);
+    freeScript(compiler.script);
     terminateParser();
 }
 
 void compile(const char *source, Chunk *chunk) {
     initParser(source);
     initCompiler(chunk);
-    compiler.AST = parse(source);
-    compileAST(compiler.AST);
+    compiler.script = parse(source);
+    compileScript(compiler.script);
     emitByte(OP_RETURN);
 }
 
-static void freeAST(Node *AST) {
-    freeNode(AST);
+static void freeScript(Node *script) {
+    Node *current = script;
+    while (current) {
+        Node *next = current->nextStmt;
+        freeNode(current);
+        current = next;
+    }
 }
 
 static void freeNode(Node *node) {
@@ -47,6 +52,12 @@ static void freeNode(Node *node) {
         return;
 
     switch (node->type) {
+    case ND_TERNARY:
+        freeNode(node->thenBranch);
+        freeNode(node->elseBranch);
+        freeNode(node->operand);
+        FREE(Node, node);
+        return;
     case ND_BINARY:
         freeNode(node->lhs);
         freeNode(node->rhs);
@@ -61,6 +72,7 @@ static void freeNode(Node *node) {
         freeNode(node->operand);
         FREE(Node, node);
         return;
+    case ND_PRINT:
     case ND_UNARY:
         freeNode(node->operand);
         FREE(Node, node);
@@ -72,10 +84,12 @@ static void freeNode(Node *node) {
     case ND_NIL:
         FREE(Node, node);
         return;
+    case ND_EMPTY:
+        return;
     }
 }
 
-static void compileAST(Node *AST) {
+static void compileScript(Node *AST) {
     compileNode(AST);
 }
 
@@ -86,6 +100,14 @@ static void compileNode(Node *node) {
     compiler.currentCompiling = node;
 
     switch (node->type) {
+    case ND_PRINT: {
+        compileNode(node->operand);
+        emitByte(OP_PRINT);
+        return;
+    }
+    case ND_TERNARY: {
+        return;
+    }
     case ND_BINARY: {
         TokenType op = node->op;
         compileNode(node->lhs);
@@ -117,7 +139,6 @@ static void compileNode(Node *node) {
         emitByte(OP_TEMPLATE);
         return;
     }
-
     case ND_TEMPLATE_SPAN:
         if (node->span != NULL) {
             compileNode(node->span);
@@ -133,6 +154,8 @@ static void compileNode(Node *node) {
         return;
     case ND_NIL:
         emitByte(OP_NIL);
+        return;
+    case ND_EMPTY:
         return;
     }
 }

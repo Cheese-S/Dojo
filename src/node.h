@@ -6,6 +6,9 @@
 #include "value.h"
 
 typedef enum {
+    ND_PRINT,
+
+    ND_TERNARY,
     ND_BINARY,
     ND_UNARY,
     ND_NUMBER,
@@ -14,7 +17,9 @@ typedef enum {
     ND_TEMPLATE_SPAN,
     ND_TRUE,
     ND_FALSE,
-    ND_NIL
+    ND_NIL,
+
+    ND_EMPTY
 } NodeType;
 
 typedef struct Node {
@@ -22,20 +27,34 @@ typedef struct Node {
     Value value;
     NodeType type;
     TokenType op;
+    struct Node *nextStmt;
     struct Node *lhs;
     struct Node *rhs;
     struct Node *operand;
     struct Node *span;
+    struct Node *thenBranch;
+    struct Node *elseBranch;
 } Node;
 
 Node *newNode(NodeType type, int line);
 
-#define NEW_UNARY(op, line, operand) newUnaryNode(op, line, operand)
+#define NEW_PRINT(express, line) newPrintNode(express, line)
 
-static inline Node *newUnaryNode(TokenType op, int line, Node *operand) {
-    Node *node = newNode(ND_UNARY, line);
-    node->op = op;
-    node->operand = operand;
+static inline Node *newPrintNode(Node *express, int line) {
+    Node *node = newNode(ND_PRINT, line);
+    node->operand = express;
+    return node;
+}
+
+#define NEW_TERNARY(condition, thenBranch, elseBranch, line)                   \
+    newTernaryNode(condition, thenBranch, elseBranch, line)
+
+static inline Node *newTernaryNode(Node *condition, Node *thenBranch,
+                                   Node *elseBranch, int line) {
+    Node *node = newNode(ND_TERNARY, line);
+    node->operand = condition;
+    node->thenBranch = thenBranch;
+    node->elseBranch = elseBranch;
     return node;
 }
 
@@ -47,6 +66,15 @@ static inline Node *newBinaryNode(TokenType op, int line, Node *lhs,
     node->op = op;
     node->lhs = lhs;
     node->rhs = rhs;
+    return node;
+}
+
+#define NEW_UNARY(op, line, operand) newUnaryNode(op, line, operand)
+
+static inline Node *newUnaryNode(TokenType op, int line, Node *operand) {
+    Node *node = newNode(ND_UNARY, line);
+    node->op = op;
+    node->operand = operand;
     return node;
 }
 

@@ -46,9 +46,14 @@ static void terminateVM() {
 static void run() {
 #define READ_BYTE() (*vm.ip++)
     for (;;) {
-        disassembleInstruction(&compilingChunk, vm.ip - compilingChunk.codes);
+        // disassembleInstruction(&compilingChunk, vm.ip -
+        // compilingChunk.codes);
         uint8_t instruction = READ_BYTE();
         switch (instruction) {
+        case OP_PRINT: {
+            printValue(pop());
+            break;
+        }
         case OP_ADD: {
             Value a = pop();
             Value b = pop();
@@ -105,7 +110,6 @@ static void run() {
             push(FALSE_VAL);
             break;
         case OP_RETURN:
-            printValue(pop());
             goto end;
             break;
         }

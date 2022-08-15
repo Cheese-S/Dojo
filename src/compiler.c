@@ -89,8 +89,13 @@ static void freeNode(Node *node) {
     }
 }
 
-static void compileScript(Node *AST) {
-    compileNode(AST);
+static void compileScript(Node *script) {
+    Node *current = script;
+    while (current) {
+        Node *next = current->nextStmt;
+        compileNode(current);
+        current = next;
+    }
 }
 
 static void compileNode(Node *node) {

@@ -10,11 +10,7 @@
 
 Parser parser;
 
-Node SENTINEL = {.line = -1,
-                 .value = NIL_VAL,
-                 .type = ND_EMPTY,
-                 .op = TOKEN_EMPTY,
-                 .nextStmt = NULL};
+Node SENTINEL;
 
 typedef enum {
     PREC_NONE,
@@ -43,11 +39,15 @@ typedef struct {
     Precedence precedence;
 } ParseRule;
 
+static void resetSentinel();
+static void skipNewlines();
 static void appendToStmts(Node *stmt);
 
 /* -------------------------------- STATEMENT ------------------------------- */
 
 static Node *declaration();
+static void synchronize();
+
 static Node *stmt();
 static Node *printStmt();
 static Node *expressionStmt();
@@ -72,6 +72,9 @@ static void advance();
 static bool check(TokenType type);
 static bool match(TokenType type);
 static bool consume(TokenType type, const char *message);
+static void errorAtCurrent(const char *msg);
+static void errorAtPrevious(const char *msg);
+static void parserError(Token *token, const char *msg);
 
 ParseRule rules[] = {
     [TOKEN_LEFT_PAREN] = {grouping, NULL, PREC_NONE},
@@ -120,6 +123,7 @@ ParseRule rules[] = {
 
 void initParser(const char *source) {
     initScanner(source);
+    resetSentinel();
     parser.hadError = false;
     parser.stmts = &SENTINEL;
     parser.tail = parser.stmts;
@@ -129,14 +133,32 @@ void terminateParser() {
     terminateScanner();
 }
 
+static void resetSentinel() {
+    SENTINEL.line = -1;
+    SENTINEL.value = NIL_VAL;
+    SENTINEL.type = ND_EMPTY;
+    SENTINEL.op = TOKEN_EMPTY;
+    SENTINEL.nextStmt = NULL;
+}
+
 Node *parse(const char *source) {
     advance();
 
     while (!match(TOKEN_EOF)) {
-        appendToStmts(declaration());
+        skipNewlines();
+        Node *decl = declaration();
+        if (decl) {
+            appendToStmts(decl);
+        }
     }
 
     return parser.stmts->nextStmt;
+}
+
+static void skipNewlines() {
+    while (match(TOKEN_NEWLINE)) {
+        ;
+    }
 }
 
 static void appendToStmts(Node *stmt) {
@@ -145,7 +167,33 @@ static void appendToStmts(Node *stmt) {
 }
 
 static Node *declaration() {
-    return stmt();
+
+    Node *decl = stmt();
+    if (parser.panicMode) {
+        synchronize();
+    }
+    return decl;
+}
+
+static void synchronize() {
+    parser.panicMode = false;
+    while (parser.current->type != TOKEN_EOF) {
+        if (parser.previous->type == TOKEN_NEWLINE)
+            return;
+        switch (parser.current->type) {
+        case TOKEN_CLASS:
+        case TOKEN_FN:
+        case TOKEN_VAR:
+        case TOKEN_FOR:
+        case TOKEN_IF:
+        case TOKEN_WHILE:
+        case TOKEN_PRINT:
+        case TOKEN_RETURN:
+            return;
+        default:;
+        }
+        advance();
+    }
 }
 
 static Node *stmt() {
@@ -157,6 +205,7 @@ static Node *stmt() {
 }
 
 static Node *printStmt() {
+    // TODO: Replace print stmt with native function
     int line = parser.previous->line;
     Node *express = expression();
     expectStmtEnd("Expect a new line character after a print statement");
@@ -177,27 +226,6 @@ static void expectStmtEnd(const char *msg) {
 
 static Node *expression() {
     return parsePrecedence(PREC_ASSIGNMENT);
-}
-
-static Node *parsePrecedence(Precedence precedence) {
-    advance();
-
-    PrefixFn prefix = getRule(parser.previous->type)->prefix;
-
-    if (prefix == NULL) {
-        error("Expected expression");
-        return NULL;
-    }
-
-    Node *left = prefix();
-
-    while (precedence <= getRule(parser.current->type)->precedence) {
-        advance();
-        InfixFn infix = getRule(parser.previous->type)->infix;
-        left = infix(left);
-    }
-
-    return left;
 }
 
 static Node *grouping() {
@@ -274,6 +302,27 @@ static Node *literal() {
     }
 }
 
+static Node *parsePrecedence(Precedence precedence) {
+    advance();
+
+    PrefixFn prefix = getRule(parser.previous->type)->prefix;
+
+    if (prefix == NULL) {
+        errorAtPrevious("Expected expression");
+        return NULL;
+    }
+
+    Node *left = prefix();
+
+    while (precedence <= getRule(parser.current->type)->precedence) {
+        advance();
+        InfixFn infix = getRule(parser.previous->type)->infix;
+        left = infix(left);
+    }
+
+    return left;
+}
+
 static ParseRule *getRule(TokenType type) {
     return &rules[type];
 }
@@ -308,10 +357,19 @@ static bool consume(TokenType type, const char *message) {
     return false;
 }
 
-void error(const char *message) {
-    errorAt(parser.previous, message);
+static void errorAtCurrent(const char *msg) {
+    parserError(parser.current, msg);
 }
 
-void errorAtCurrent(const char *message) {
-    errorAt(parser.current, message);
+static void errorAtPrevious(const char *msg) {
+    parserError(parser.previous, msg);
+}
+
+static void parserError(Token *token, const char *msg) {
+    if (parser.panicMode)
+        return;
+
+    parser.panicMode = true;
+    parser.hadError = true;
+    errorAtToken(token, msg);
 }

@@ -159,10 +159,10 @@ void scanToken() {
         appendNewToken(makeToken(TOKEN_RIGHT_BRACE));
         return;
     case '\n':
-        scanner.line++;
         if (scanner.tail->type != TOKEN_NEWLINE) {
             appendNewToken(makeToken(TOKEN_NEWLINE));
         }
+        scanner.line++;
         return;
     case ',':
         appendNewToken(makeToken(TOKEN_COMMA));

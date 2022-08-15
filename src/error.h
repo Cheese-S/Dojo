@@ -3,8 +3,6 @@
 
 #include "scanner.h"
 
-void errorAt(Token *token, const char *message);
-void errorAtCurrent(const char *message);
-void error(const char *message);
+void errorAtToken(Token *token, const char *message);
 
 #endif

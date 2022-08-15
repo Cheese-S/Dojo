@@ -1,1 +1,6 @@
-`head ${false} mid ${true} end`
+print "Should still be valid"
+
+
+
+
+print "test error handling"

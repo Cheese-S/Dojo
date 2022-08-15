@@ -6,25 +6,13 @@
 #define RED "\x1B[31m"
 #define RESET "\x1B[0m"
 
-void errorAt(Token *token, const char *message) {
+void errorAtToken(Token *token, const char *message) {
     fprintf(stderr, RED_TEXT("[line %d] Error"), token->line);
 
     if (token->type == TOKEN_EOF) {
-        fprintf(stderr, " at end");
-    } else if (token->type == TOKEN_ERROR) {
-
-    } else {
-        fprintf(stderr, RED_TEXT("at '%.*s'"), token->length, token->start);
-    }
-
-    fprintf(stderr, RED_TEXT(": %s\n"), message);
-}
-
-void scannerError(Token *token, const char *message) {
-    fprintf(stderr, RED_TEXT("[line %d] Error"), token->line);
-
-    if (token->type == TOKEN_EOF) {
-        fprintf(stderr, " at end");
+        fprintf(stderr, RED_TEXT(" at end"));
+    } else if (token->type == TOKEN_NEWLINE) {
+        fprintf(stderr, RED_TEXT(" at newline character"));
     } else if (token->type == TOKEN_ERROR) {
 
     } else {

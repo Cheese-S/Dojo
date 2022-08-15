@@ -10,13 +10,16 @@ typedef struct {
     Node *stmts;
     Node *tail;
     bool hadError;
+    bool panicMode;
 } Parser;
+
+typedef struct {
+    Node *stmts;
+    bool hadError;
+} ParserResult;
 
 void initParser(const char *source);
 void terminateParser();
 Node *parse();
-
-void error(const char *message);
-void errorAtCurrent(const char *message);
 
 #endif

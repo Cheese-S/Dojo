@@ -1,0 +1,1 @@
+print `This is a template string ${false} it works! ${true} see for yourself ${3 + 5 / 4} dojo`

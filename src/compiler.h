@@ -8,10 +8,11 @@ typedef struct {
     Chunk *compilingChunk;
     Node *script;
     Node *currentCompiling;
+    bool hadError;
 } Compiler;
 
 void initCompiler(Chunk *chunk);
 void terminateCompiler();
-void compile(const char *source, Chunk *chunk);
+bool compile(const char *source, Chunk *chunk);
 
 #endif

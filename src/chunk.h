@@ -6,18 +6,38 @@
 
 typedef enum {
     OP_PRINT,
+
+    OP_DEFINE_GLOBAL,
+    OP_SET_GLOBAL,
+    OP_GET_GLOBAL,
+
+    OP_CONSTANT,
+    // Binary
+    OP_ASSIGN,
+    OP_EQUAL,
+    OP_NOT_EQUAL,
+    OP_AND,
+    OP_OR,
+    OP_LESS,
+    OP_LESS_EQUAL,
+    OP_GREATER,
+    OP_GREATER_EQUAL,
     OP_ADD,
     OP_SUBTRACT,
     OP_MULTIPLY,
     OP_DIVIDE,
+    // Unary
     OP_NOT,
     OP_NEGATE,
-    OP_CONSTANT,
+    // Literal
     OP_TEMPLATE,
     OP_TRUE,
     OP_FALSE,
     OP_NIL,
     OP_RETURN,
+    // Stack Op
+    OP_POP,
+    OP_PUSH
 } Opcode;
 
 typedef struct {

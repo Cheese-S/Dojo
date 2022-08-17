@@ -8,6 +8,7 @@
 
 static Obj *allocateObj(size_t size, ObjType type);
 static void freeObj(Obj *obj);
+static char *allocateNewCStr(const char *str, int len);
 static ObjString *getInternedString(const char *str, int len);
 static ObjString *internString(const char *str, int len);
 static void initObjString(ObjString *objstr, const char *str, int len);
@@ -46,7 +47,16 @@ void markUsingHeap(ObjString *str) {
 }
 
 Value newObjStringInVal(const char *str, int len) {
+    if (vm.isREPL) {
+        str = allocateNewCStr(str, len);
+    }
     return OBJ_VAL(newObjString(str, len));
+}
+
+static char *allocateNewCStr(const char *str, int len) {
+    char *dest = GC_ALLOCATE(char, len);
+    memcpy(dest, str, sizeof(char) * len);
+    return dest;
 }
 
 ObjString *newObjString(const char *str, int len) {

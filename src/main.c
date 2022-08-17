@@ -28,6 +28,7 @@ int main(int argc, const char *argv[]) {
 
 static void repl() {
     char line[1024];
+    initVM(true);
     for (;;) {
         printf("> ");
         if (!fgets(line, sizeof(line), stdin)) {
@@ -35,7 +36,6 @@ static void repl() {
             break;
         }
         interpret(line);
-        printf("\n");
         // Token Scan Code
         // initScanner(line);
         // int prevLine = -1;
@@ -57,6 +57,7 @@ static void repl() {
 
 static void runFile(const char *path) {
     char *source = readFile(path);
+    initVM(false);
     interpret(source);
     free(source);
 }

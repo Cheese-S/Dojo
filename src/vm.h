@@ -12,15 +12,23 @@
 typedef struct {
     Value stack[STACK_MAX];
     Value *stackTop;
-    uint8_t *ip;
-    int count;
-    Hashmap stringLiterals;
     Obj *objs;
+    uint8_t *ip;
+    Hashmap stringLiterals;
+    Hashmap globals;
+    int count;
+    bool isREPL;
 } VM;
+
+typedef enum {
+    INTERPRET_OK,
+    INTERPRET_COMPILE_ERROR,
+    INTERPRET_RUNTIME_ERROR
+} InterpreterResult;
 
 extern VM vm;
 
-void interpret(const char *source);
-void initVM();
+InterpreterResult interpret(const char *source);
+void initVM(bool isREPL);
 
 #endif

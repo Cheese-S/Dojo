@@ -6,27 +6,28 @@
 #include "value.h"
 
 typedef enum {
+    ND_VAR_DECL,
     ND_PRINT,
+    ND_EXPRESSION,
 
+    ND_ASSIGNMENT,
     ND_TERNARY,
     ND_BINARY,
     ND_UNARY,
-    ND_NUMBER,
-    ND_STRING,
+    ND_VAR,
     ND_TEMPLATE_HEAD,
     ND_TEMPLATE_SPAN,
-    ND_TRUE,
-    ND_FALSE,
-    ND_NIL,
+    ND_STRING,
+    ND_NUMBER,
+    ND_LITERAL,
 
     ND_EMPTY
 } NodeType;
 
+// TODO: use union rather than a bunch of pointers
 typedef struct Node {
-    int line;
-    Value value;
     NodeType type;
-    TokenType op;
+    Token *token;
     struct Node *nextStmt;
     struct Node *lhs;
     struct Node *rhs;
@@ -36,91 +37,112 @@ typedef struct Node {
     struct Node *elseBranch;
 } Node;
 
-Node *newNode(NodeType type, int line);
+Node *newNode(NodeType type, Token *token);
 
-#define NEW_PRINT(express, line) newPrintNode(express, line)
+#define NEW_ASSIGNMENT(token, lhs, rhs) newAssignmentNode(token, lhs, rhs)
 
-static inline Node *newPrintNode(Node *express, int line) {
-    Node *node = newNode(ND_PRINT, line);
+static inline Node *newAssignmentNode(Token *token, Node *lhs, Node *rhs) {
+    Node *node = newNode(ND_ASSIGNMENT, token);
+    node->lhs = lhs;
+    node->rhs = rhs;
+    return node;
+}
+
+#define NEW_VAR_DECL(token, initializer)                                       \
+    newVarDeclarationNode(token, initializer)
+
+static inline Node *newVarDeclarationNode(Token *token, Node *initializer) {
+    Node *node = newNode(ND_VAR_DECL, token);
+    node->operand = initializer;
+    return node;
+}
+
+#define NEW_PRINT_STMT(token, expression) newPrintNode(token, expression)
+
+static inline Node *newPrintNode(Token *token, Node *express) {
+    Node *node = newNode(ND_PRINT, token);
     node->operand = express;
     return node;
 }
 
-#define NEW_TERNARY(condition, thenBranch, elseBranch, line)                   \
-    newTernaryNode(condition, thenBranch, elseBranch, line)
+#define NEW_EXPRESS_STMT(expression, line) newExpressionNode(expression, line)
 
-static inline Node *newTernaryNode(Node *condition, Node *thenBranch,
-                                   Node *elseBranch, int line) {
-    Node *node = newNode(ND_TERNARY, line);
+static inline Node *newExpressionNode(Token *token, Node *expression) {
+    Node *node = newNode(ND_EXPRESSION, token);
+    node->operand = expression;
+    return node;
+}
+
+#define NEW_TERNARY(token, condition, thenBranch, elseBranch)                  \
+    newTernaryNode(token, condition, thenBranch, elseBranch)
+
+static inline Node *newTernaryNode(Token *token, Node *condition,
+                                   Node *thenBranch, Node *elseBranch) {
+    Node *node = newNode(ND_TERNARY, token);
     node->operand = condition;
     node->thenBranch = thenBranch;
     node->elseBranch = elseBranch;
     return node;
 }
 
-#define NEW_BINARY(op, line, lhs, rhs) newBinaryNode(op, line, lhs, rhs)
+#define NEW_BINARY(token, lhs, rhs) newBinaryNode(token, lhs, rhs)
 
-static inline Node *newBinaryNode(TokenType op, int line, Node *lhs,
-                                  Node *rhs) {
-    Node *node = newNode(ND_BINARY, line);
-    node->op = op;
+static inline Node *newBinaryNode(Token *token, Node *lhs, Node *rhs) {
+    Node *node = newNode(ND_BINARY, token);
     node->lhs = lhs;
     node->rhs = rhs;
     return node;
 }
 
-#define NEW_UNARY(op, line, operand) newUnaryNode(op, line, operand)
+#define NEW_UNARY(token, operand) newUnaryNode(token, operand)
 
-static inline Node *newUnaryNode(TokenType op, int line, Node *operand) {
-    Node *node = newNode(ND_UNARY, line);
-    node->op = op;
+static inline Node *newUnaryNode(Token *token, Node *operand) {
+    Node *node = newNode(ND_UNARY, token);
     node->operand = operand;
     return node;
 }
 
-#define NEW_NUMBER(value, line) newNumberNode(value, line)
+#define NEW_TEMPLATE_HEAD(token) newTemplateHeadNode(token)
 
-static inline Node *newNumberNode(Value value, int line) {
-    Node *node = newNode(ND_NUMBER, line);
-    node->value = value;
-    return node;
-}
-
-#define NEW_STRING(str, line) newStringNode(str, line)
-
-static inline Node *newStringNode(Value value, int line) {
-    Node *node = newNode(ND_STRING, line);
-    node->value = value;
-    return node;
-}
-
-#define NEW_TEMPLATE_HEAD(literal, line) newTemplateHeadNode(literal, line)
-
-static inline Node *newTemplateHeadNode(Value literal, int line) {
-    Node *node = newNode(ND_TEMPLATE_HEAD, line);
-    node->value = literal;
-    node->line = line;
+static inline Node *newTemplateHeadNode(Token *token) {
+    Node *node = newNode(ND_TEMPLATE_HEAD, token);
     node->span = NULL;
     return node;
 }
 
-#define NEW_TEMPLATE_SPAN(expression, literal, line)                           \
-    newTemplateSpanNode(expression, literal, line)
+#define NEW_VAR(token) newVarNode(token)
 
-static inline Node *newTemplateSpanNode(Node *expression, Value literal,
-                                        int line) {
-    Node *node = newNode(ND_TEMPLATE_SPAN, line);
-    node->value = literal;
-    node->line = line;
+static inline Node *newVarNode(Token *token) {
+    Node *node = newNode(ND_VAR, token);
+    return node;
+}
+
+#define NEW_TEMPLATE_SPAN(token, expression)                                   \
+    newTemplateSpanNode(token, expression)
+
+static inline Node *newTemplateSpanNode(Token *token, Node *expression) {
+    Node *node = newNode(ND_TEMPLATE_SPAN, token);
     node->operand = expression;
     node->span = NULL;
     return node;
 }
 
-#define NEW_LITERAL(type, line) newLiteralNode(type, line)
+#define NEW_STRING(token) newStringNode(token)
 
-static inline Node *newLiteralNode(NodeType type, int line) {
-    return newNode(type, line);
+static inline Node *newStringNode(Token *token) {
+    return newNode(ND_STRING, token);
+}
+
+#define NEW_NUMBER(token) newNumberNode(token)
+
+static inline Node *newNumberNode(Token *token) {
+    return newNode(ND_NUMBER, token);
+}
+
+#define NEW_LITERAL(token) newLiteralNode(token)
+
+static inline Node *newLiteralNode(Token *token) {
+    return newNode(ND_LITERAL, token);
 }
 
 #endif

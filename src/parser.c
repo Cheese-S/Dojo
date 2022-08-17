@@ -47,6 +47,7 @@ static void appendToStmts(Node *stmt);
 
 static Node *declaration();
 static void synchronize();
+static Node *varDeclaration();
 
 static Node *stmt();
 static Node *printStmt();
@@ -58,12 +59,14 @@ static void expectStmtEnd(const char *str);
 
 static Node *expression();
 static Node *grouping();
+static Node *assignment();
 static Node *ternary();
 static Node *binary();
 static Node *unary();
-static Node *number();
+static Node *variable();
 static Node *stringTemplate();
 static Node *string();
+static Node *number();
 static Node *literal();
 static Node *parsePrecedence(Precedence precedence);
 static ParseRule *getRule(TokenType type);
@@ -90,14 +93,14 @@ ParseRule rules[] = {
     [TOKEN_STAR] = {NULL, binary, PREC_FACTOR},
     [TOKEN_QUESTION] = {NULL, ternary, PREC_TERNARY},
     [TOKEN_BANG] = {unary, NULL, PREC_UNARY},
-    [TOKEN_BANG_EQUAL] = {NULL, NULL, PREC_NONE},
-    [TOKEN_EQUAL] = {NULL, NULL, PREC_NONE},
-    [TOKEN_EQUAL_EQUAL] = {NULL, NULL, PREC_NONE},
-    [TOKEN_GREATER] = {NULL, NULL, PREC_NONE},
-    [TOKEN_GREATER_EQUAL] = {NULL, NULL, PREC_NONE},
-    [TOKEN_LESS] = {NULL, NULL, PREC_NONE},
-    [TOKEN_LESS_EQUAL] = {NULL, NULL, PREC_NONE},
-    [TOKEN_IDENTIFIER] = {NULL, NULL, PREC_NONE},
+    [TOKEN_BANG_EQUAL] = {NULL, binary, PREC_EQUALITY},
+    [TOKEN_EQUAL] = {NULL, assignment, PREC_ASSIGNMENT},
+    [TOKEN_EQUAL_EQUAL] = {NULL, binary, PREC_EQUALITY},
+    [TOKEN_GREATER] = {NULL, binary, PREC_COMPARISON},
+    [TOKEN_GREATER_EQUAL] = {NULL, binary, PREC_COMPARISON},
+    [TOKEN_LESS] = {NULL, binary, PREC_COMPARISON},
+    [TOKEN_LESS_EQUAL] = {NULL, binary, PREC_COMPARISON},
+    [TOKEN_IDENTIFIER] = {variable, NULL, PREC_NONE},
     [TOKEN_STRING] = {string, NULL, PREC_NONE},
     [TOKEN_PRE_TEMPLATE] = {stringTemplate, NULL, PREC_NONE},
     [TOKEN_NUMBER] = {number, NULL, PREC_NONE},
@@ -125,6 +128,7 @@ void initParser(const char *source) {
     initScanner(source);
     resetSentinel();
     parser.hadError = false;
+    parser.panicMode = false;
     parser.stmts = &SENTINEL;
     parser.tail = parser.stmts;
 }
@@ -134,14 +138,12 @@ void terminateParser() {
 }
 
 static void resetSentinel() {
-    SENTINEL.line = -1;
-    SENTINEL.value = NIL_VAL;
     SENTINEL.type = ND_EMPTY;
-    SENTINEL.op = TOKEN_EMPTY;
+    SENTINEL.token = NULL;
     SENTINEL.nextStmt = NULL;
 }
 
-Node *parse(const char *source) {
+Node *parse(bool *hadError) {
     advance();
 
     while (!match(TOKEN_EOF)) {
@@ -151,7 +153,7 @@ Node *parse(const char *source) {
             appendToStmts(decl);
         }
     }
-
+    *hadError = parser.hadError;
     return parser.stmts->nextStmt;
 }
 
@@ -167,8 +169,12 @@ static void appendToStmts(Node *stmt) {
 }
 
 static Node *declaration() {
-
-    Node *decl = stmt();
+    Node *decl;
+    if (match(TOKEN_VAR)) {
+        decl = varDeclaration();
+    } else {
+        decl = stmt();
+    }
     if (parser.panicMode) {
         synchronize();
     }
@@ -196,6 +202,18 @@ static void synchronize() {
     }
 }
 
+static Node *varDeclaration() {
+    consume(TOKEN_IDENTIFIER, "Expect an identifier after var.");
+    Token *token = parser.previous;
+    Node *initializer = NULL;
+    if (match(TOKEN_EQUAL)) {
+        initializer = expression();
+    }
+    consume(TOKEN_NEWLINE,
+            "Expect a newline character after a variable declaration");
+    return NEW_VAR_DECL(token, initializer);
+}
+
 static Node *stmt() {
     if (match(TOKEN_PRINT)) {
         return printStmt();
@@ -206,16 +224,17 @@ static Node *stmt() {
 
 static Node *printStmt() {
     // TODO: Replace print stmt with native function
-    int line = parser.previous->line;
+    Token *token = parser.previous;
     Node *express = expression();
-    expectStmtEnd("Expect a new line character after a print statement");
-    return NEW_PRINT(express, line);
+    expectStmtEnd("Expect a newline character after a print statement");
+    return NEW_PRINT_STMT(token, express);
 }
 
 static Node *expressionStmt() {
+    Token *token = parser.previous;
     Node *express = expression();
     expectStmtEnd("Expect a newline character after a expression statement");
-    return express;
+    return NEW_EXPRESS_STMT(token, express);
 }
 
 static void expectStmtEnd(const char *msg) {
@@ -234,43 +253,43 @@ static Node *grouping() {
     return node;
 };
 
+static Node *assignment(Node *lhs) {
+    Token *token = parser.previous;
+    Node *rhs = expression();
+    return NEW_ASSIGNMENT(token, lhs, rhs);
+}
+
 static Node *ternary(Node *condition) {
-    int line = parser.previous->line;
+    Token *token = parser.previous;
     Node *thenBranch = expression();
     consume(TOKEN_COLON, "Expect ':' after expression");
     Node *elseBranch = parsePrecedence(getRule(TOKEN_QUESTION)->precedence - 1);
-    return NEW_TERNARY(condition, thenBranch, elseBranch, line);
+    return NEW_TERNARY(token, condition, thenBranch, elseBranch);
 }
 
 static Node *binary(Node *lhs) {
-    TokenType op = parser.previous->type;
-    int line = parser.previous->line;
-    Node *rhs = parsePrecedence(getRule(op)->precedence + 1);
-    return NEW_BINARY(op, line, lhs, rhs);
+    Token *op = parser.previous;
+    Node *rhs = parsePrecedence(getRule(op->type)->precedence + 1);
+    return NEW_BINARY(op, lhs, rhs);
 };
 
 static Node *unary() {
-    TokenType op = parser.previous->type;
-    int line = parser.previous->line;
+    Token *op = parser.previous;
     Node *operand = parsePrecedence(PREC_UNARY);
-    return NEW_UNARY(op, line, operand);
+    return NEW_UNARY(op, operand);
+}
+
+static Node *variable() {
+    return NEW_VAR(parser.previous);
 }
 
 static Node *stringTemplate() {
-    Node *head =
-        NEW_TEMPLATE_HEAD(newObjStringInVal(parser.previous->start + 1,
-                                            parser.previous->length - 1),
-                          parser.previous->line);
+    Node *head = NEW_TEMPLATE_HEAD(parser.previous);
     Node *prev = head;
 
     while (parser.previous->type != TOKEN_AFTER_TEMPLATE) {
         Node *express = expression();
-        int length = parser.current->type == TOKEN_AFTER_TEMPLATE
-                         ? parser.current->length - 1
-                         : parser.current->length;
-        Node *span = NEW_TEMPLATE_SPAN(
-            express, newObjStringInVal(parser.current->start, length),
-            parser.current->line);
+        Node *span = NEW_TEMPLATE_SPAN(parser.current, express);
         prev->span = span;
         prev = span;
         advance();
@@ -280,26 +299,15 @@ static Node *stringTemplate() {
 }
 
 static Node *string() {
-    return NEW_STRING(OBJ_VAL(newObjString(parser.previous->start + 1,
-                                           parser.previous->length - 2)),
-                      parser.previous->line);
+    return NEW_STRING(parser.previous);
 }
 
 static Node *number() {
-    return NEW_NUMBER(NUMBER_VAL(strtod(parser.previous->start, NULL)),
-                      parser.previous->line);
+    return NEW_NUMBER(parser.previous);
 }
 
 static Node *literal() {
-    TokenType type = parser.previous->type;
-    int line = parser.previous->line;
-    if (type == TOKEN_TRUE) {
-        return NEW_LITERAL(ND_TRUE, line);
-    } else if (type == TOKEN_FALSE) {
-        return NEW_LITERAL(ND_FALSE, line);
-    } else {
-        return NEW_LITERAL(ND_NIL, line);
-    }
+    return NEW_LITERAL(parser.previous);
 }
 
 static Node *parsePrecedence(Precedence precedence) {

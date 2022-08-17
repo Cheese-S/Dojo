@@ -8,7 +8,6 @@ static void growValueArray(ValueArray *arr);
 
 void printValue(Value value) {
     printValueToFile(stdout, value);
-    fflush(stdout);
 }
 
 void printValueToFile(FILE *f, Value value) {

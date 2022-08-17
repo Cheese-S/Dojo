@@ -102,7 +102,7 @@ bool mapDelete(Hashmap *map, ObjString *key) {
 
 static void rehash(Hashmap *map, int newCapacity) {
     Entry *entries = GC_ALLOCATE(Entry, newCapacity);
-    cleanEntries(entries, map->capacity);
+    cleanEntries(entries, newCapacity);
     refillEntries(map, entries, newCapacity);
     FREE_ARRAY(Entry, map->entries, map->capacity);
     map->entries = entries;

@@ -5,4 +5,5 @@
 
 void errorAtToken(Token *token, const char *message);
 
+void runtimeError(int line, const char *format, ...);
 #endif

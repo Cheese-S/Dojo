@@ -1,16 +1,15 @@
 #include "node.h"
 #include "memory.h"
 
-static void initNode(Node *node, NodeType type, int line);
+static void initNode(Node *node, NodeType type, Token *token);
 
-Node *newNode(NodeType type, int line) {
+Node *newNode(NodeType type, Token *token) {
     Node *node = ALLOCATE(Node, 1);
-    initNode(node, type, line);
+    initNode(node, type, token);
     return node;
 }
 
-static void initNode(Node *node, NodeType type, int line) {
-    node->line = line;
+static void initNode(Node *node, NodeType type, Token *token) {
     node->type = type;
-    node->nextStmt = NULL;
+    node->token = token;
 }

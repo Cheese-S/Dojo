@@ -5,6 +5,7 @@ assert() {
   
   echo -e "$input" > test.dojo
 
+
   actual=`$DOJO test.dojo`
 
   if [ "$actual" = "$expected" ]; then

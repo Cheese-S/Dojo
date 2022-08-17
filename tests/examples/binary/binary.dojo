@@ -1,0 +1,28 @@
+print 3.3 + 5.5
+print 5.5 - 3.3
+print 3.5 / 3.5
+print 4.4 * 5.5
+
+print 10 + 10 - 2 -3
+print 20 / 5
+print 30 - 30 / 2
+print 0 + 25 / 5 + 15
+print 25 / 5 + 30
+print 3 * (2 + 3)
+print (0 + 25) / 5 + 10
+print (((0)))
+
+print 5.5 > 3
+print 4.5 >= 3
+print 4.5 >= 4.5
+print 3 < 5.5
+print 3 <= 5.5
+print 3 <= 3
+
+print 3 == 3 
+print "this equals" == "this equals"
+print `ethis equals` == `this equals`
+print "this equals" == "this does not equal"
+print 4 != 5
+print false == false
+print !false != false

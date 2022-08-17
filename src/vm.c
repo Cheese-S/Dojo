@@ -2,18 +2,21 @@
 #include "chunk.h"
 #include "compiler.h"
 #include "debug.h"
+#include "error.h"
 #include "hashmap.h"
 #include "object.h"
 #include "value.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 static void terminateVM();
 
-static void run();
+static InterpreterResult run();
 
 static Value makeStrTemplate();
 
+static int currentOpLine();
 static void resetStack();
 static void push(Value value);
 static Value pop();
@@ -22,60 +25,123 @@ static Value peek(int depth);
 VM vm;
 Chunk compilingChunk;
 
-void interpret(const char *source) {
+InterpreterResult interpret(const char *source) {
     initChunk(&compilingChunk);
-    initVM();
-    compile(source, &compilingChunk);
+    if (compile(source, &compilingChunk)) {
+        freeChunk(&compilingChunk);
+        return INTERPRET_COMPILE_ERROR;
+    }
     vm.ip = compilingChunk.codes;
-    run();
+    InterpreterResult res = run();
     freeChunk(&compilingChunk);
+    return res;
     // terminateCompiler();
     // terminateVM();
 }
 
-void initVM() {
+void initVM(bool isREPL) {
     resetStack();
+    initMap(&vm.stringLiterals);
+    initMap(&vm.globals);
     vm.objs = NULL;
+    vm.isREPL = isREPL;
 }
 
 static void terminateVM() {
     freeObjs(vm.objs);
     freeMap(&vm.stringLiterals);
+    freeMap(&vm.globals);
 }
 
-static void run() {
+static InterpreterResult run() {
 #define READ_BYTE() (*vm.ip++)
+#define READ_CONSTANT() (getConstantAtIndex(&compilingChunk, READ_BYTE()))
+#define READ_STRING() (AS_STRING(READ_CONSTANT()))
+#define ARITHEMETIC_BINARY_OP(valueType, op)                                   \
+    do {                                                                       \
+        double b = AS_NUMBER(pop());                                           \
+        double a = AS_NUMBER(pop());                                           \
+        push(valueType(a op b));                                               \
+    } while (false)
+
     for (;;) {
-        // disassembleInstruction(&compilingChunk, vm.ip -
-        // compilingChunk.codes);
+        disassembleInstruction(&compilingChunk, vm.ip - compilingChunk.codes);
         uint8_t instruction = READ_BYTE();
         switch (instruction) {
+        case OP_DEFINE_GLOBAL: {
+            ObjString *name = READ_STRING();
+            mapPut(&vm.globals, name, peek(0));
+            pop();
+            break;
+        }
+        case OP_GET_GLOBAL: {
+            ObjString *name = READ_STRING();
+            Value val;
+            if (!mapGet(&vm.globals, name, &val)) {
+                runtimeError(currentOpLine(), "Undefined Variable '%.*s'",
+                             name->length, name->str);
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            push(val);
+            break;
+        }
+        case OP_SET_GLOBAL: {
+            ObjString *name = READ_STRING();
+            if (mapPut(&vm.globals, name, peek(0))) {
+                mapDelete(&vm.globals, name);
+                runtimeError(currentOpLine(), "Undefined Variable '%.*s'",
+                             name->length, name->str);
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            break;
+        }
         case OP_PRINT: {
             printValue(pop());
+            printf("\n");
+            break;
+        }
+        case OP_EQUAL: {
+            Value b = pop();
+            Value a = pop();
+            push(BOOL_VAL(a == b));
+            break;
+        }
+        case OP_NOT_EQUAL: {
+            Value b = pop();
+            Value a = pop();
+            push(BOOL_VAL(a != b));
+            break;
+        }
+        case OP_LESS: {
+            ARITHEMETIC_BINARY_OP(BOOL_VAL, <);
+            break;
+        }
+        case OP_LESS_EQUAL: {
+            ARITHEMETIC_BINARY_OP(BOOL_VAL, <=);
+            break;
+        }
+        case OP_GREATER: {
+            ARITHEMETIC_BINARY_OP(BOOL_VAL, >);
+            break;
+        }
+        case OP_GREATER_EQUAL: {
+            ARITHEMETIC_BINARY_OP(BOOL_VAL, >=);
             break;
         }
         case OP_ADD: {
-            Value a = pop();
-            Value b = pop();
-            push(NUMBER_VAL(AS_NUMBER(a) + AS_NUMBER(b)));
+            ARITHEMETIC_BINARY_OP(NUMBER_VAL, +);
             break;
         }
         case OP_SUBTRACT: {
-            Value b = pop();
-            Value a = pop();
-            push(NUMBER_VAL(AS_NUMBER(a) - AS_NUMBER(b)));
+            ARITHEMETIC_BINARY_OP(NUMBER_VAL, -);
             break;
         }
         case OP_DIVIDE: {
-            Value b = pop();
-            Value a = pop();
-            push(NUMBER_VAL(AS_NUMBER(a) / AS_NUMBER(b)));
+            ARITHEMETIC_BINARY_OP(NUMBER_VAL, /);
             break;
         }
         case OP_MULTIPLY: {
-            Value b = pop();
-            Value a = pop();
-            push(NUMBER_VAL(AS_NUMBER(a) * AS_NUMBER(b)));
+            ARITHEMETIC_BINARY_OP(NUMBER_VAL, *);
             break;
         }
         case OP_TEMPLATE: {
@@ -96,7 +162,7 @@ static void run() {
             break;
         }
         case OP_CONSTANT: {
-            Value val = getConstantAtIndex(&compilingChunk, READ_BYTE());
+            Value val = READ_CONSTANT();
             push(val);
             break;
         }
@@ -112,11 +178,22 @@ static void run() {
         case OP_RETURN:
             goto end;
             break;
+        case OP_POP:
+            pop();
+            break;
         }
     }
 end:
-    return;
+    return INTERPRET_OK;
+#undef ARITHEMETIC_BINARY_OP
+#undef READ_STRING
+#undef READ_CONSTANT
 #undef READ_BYTE
+}
+
+static int currentOpLine() {
+    size_t instruction = vm.ip - compilingChunk.codes - 1;
+    return compilingChunk.lines[instruction];
 }
 
 static Value makeStrTemplate() {

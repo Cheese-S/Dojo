@@ -20,6 +20,8 @@ suite "String Literal"
 assert "string" 'print '\"'string'\"
 assert "" 'print '\"\"
 assert "" 'print '\`\`
+assert "true" 'print '\`'string'\`'=='\`'string'\`
+assert "true" 'print '\"'string'\"'=='\"'string'\"
 
 suite "Template String"
 

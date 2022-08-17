@@ -34,10 +34,9 @@ static inline Value numToValue(double num) {
 #define IS_OBJ(value) (((value) & (QNAN | SIGN_BIT)) == (QNAN | SIGN_BIT))
 
 #define AS_BOOL(value) ((value) == TRUE_VAL)
+#define AS_OBJ(value) ((Obj *)(uintptr_t)((value) & ~(SIGN_BIT | QNAN)))
 
 #define AS_NUMBER(value) valueToNum(value)
-
-#define AS_OBJ(value) ((Obj *)(uintptr_t)((value) & ~(SIGN_BIT | QNAN)))
 
 static inline double valueToNum(Value value) {
     double num;
@@ -51,9 +50,9 @@ typedef struct {
     Value *values;
 } ValueArray;
 
+void printValue(Value val);
+void printValueToFile(FILE *f, Value val);
 void initValueArray(ValueArray *arr);
 int writeValueArray(ValueArray *arr, Value value);
 void freeValueArray(ValueArray *arr);
-void printValue(Value val);
-void printValueToFile(FILE *f, Value val);
 #endif

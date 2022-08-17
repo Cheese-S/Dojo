@@ -13,13 +13,8 @@ typedef struct {
     bool panicMode;
 } Parser;
 
-typedef struct {
-    Node *stmts;
-    bool hadError;
-} ParserResult;
-
 void initParser(const char *source);
 void terminateParser();
-Node *parse();
+Node *parse(bool *hadError);
 
 #endif

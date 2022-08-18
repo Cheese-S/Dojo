@@ -46,6 +46,11 @@ void markUsingHeap(ObjString *str) {
     str->isUsingHeap = true;
 }
 
+bool isObjStrEqual(ObjString *a, ObjString *b) {
+    return a->length == b->length && a->hash == b->hash &&
+           memcmp(a->str, b->str, sizeof(char) * a->length);
+}
+
 Value newObjStringInVal(const char *str, int len) {
     if (vm.isREPL) {
         str = allocateNewCStr(str, len);

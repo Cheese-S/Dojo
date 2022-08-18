@@ -239,8 +239,10 @@ static Token *skipWhiteSpace() {
                 while (peek() != '\n' && !isAtEnd()) {
                     advance();
                 }
-                if (peek() == '\n')
+                if (peek() == '\n') {
+                    scanner.line++;
                     advance();
+                }
             } else if (peekNext() == '*') {
                 advanceN(2);
                 res = blockComment();

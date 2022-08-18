@@ -1,2 +1,7 @@
-var a = 36.6
-print a
+// This is a comment
+
+
+
+
+
+var a = a

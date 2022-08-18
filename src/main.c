@@ -5,9 +5,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static void repl();
+static bool isExtendedByDojo(const char *path);
+static const char *getFileExt(const char *path);
 
+static void repl();
 static void runFile(const char *path);
+
 static char *readFile(const char *path);
 static FILE *openFile(const char *path);
 static size_t getFileSize(FILE *file);
@@ -17,13 +20,29 @@ int main(int argc, const char *argv[]) {
     if (argc == 1) {
         repl();
     } else if (argc == 2) {
-        runFile(argv[1]);
+        const char *path = argv[1];
+        if (!isExtendedByDojo(path)) {
+            fprintf(stderr, "Error: You must input a .dojo file\n");
+            exit(64);
+        }
+        runFile(path);
     } else {
         fprintf(stderr, "Usage: dojo [path]\n");
         exit(64);
     }
 
     return 0;
+}
+
+static bool isExtendedByDojo(const char *path) {
+    return memcmp(getFileExt(path), "dojo", 4) == 0;
+}
+
+static const char *getFileExt(const char *path) {
+    const char *dot = strrchr(path, '.');
+    if (!dot || dot == path)
+        return "";
+    return dot + 1;
 }
 
 static void repl() {
@@ -58,8 +77,11 @@ static void repl() {
 static void runFile(const char *path) {
     char *source = readFile(path);
     initVM(false);
-    interpret(source);
+    InterpreterResult res = interpret(source);
     free(source);
+    if (res != INTERPRET_OK) {
+        exit(1);
+    }
 }
 
 static char *readFile(const char *path) {

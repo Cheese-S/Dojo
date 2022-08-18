@@ -7,6 +7,7 @@
 
 typedef enum {
     ND_VAR_DECL,
+    ND_BLOCK,
     ND_PRINT,
     ND_EXPRESSION,
 
@@ -28,6 +29,7 @@ typedef enum {
 typedef struct Node {
     NodeType type;
     Token *token;
+    int numSpans;
     struct Node *nextStmt;
     struct Node *lhs;
     struct Node *rhs;
@@ -39,21 +41,20 @@ typedef struct Node {
 
 Node *newNode(NodeType type, Token *token);
 
-#define NEW_ASSIGNMENT(token, lhs, rhs) newAssignmentNode(token, lhs, rhs)
-
-static inline Node *newAssignmentNode(Token *token, Node *lhs, Node *rhs) {
-    Node *node = newNode(ND_ASSIGNMENT, token);
-    node->lhs = lhs;
-    node->rhs = rhs;
-    return node;
-}
-
 #define NEW_VAR_DECL(token, initializer)                                       \
     newVarDeclarationNode(token, initializer)
 
 static inline Node *newVarDeclarationNode(Token *token, Node *initializer) {
     Node *node = newNode(ND_VAR_DECL, token);
     node->operand = initializer;
+    return node;
+}
+
+#define NEW_BLOCK_STMT(token, stmts) newBlockNode(token, stmts)
+
+static inline Node *newBlockNode(Token *token, Node *stmts) {
+    Node *node = newNode(ND_BLOCK, token);
+    node->operand = stmts;
     return node;
 }
 
@@ -70,6 +71,15 @@ static inline Node *newPrintNode(Token *token, Node *express) {
 static inline Node *newExpressionNode(Token *token, Node *expression) {
     Node *node = newNode(ND_EXPRESSION, token);
     node->operand = expression;
+    return node;
+}
+
+#define NEW_ASSIGNMENT(token, lhs, rhs) newAssignmentNode(token, lhs, rhs)
+
+static inline Node *newAssignmentNode(Token *token, Node *lhs, Node *rhs) {
+    Node *node = newNode(ND_ASSIGNMENT, token);
+    node->lhs = lhs;
+    node->rhs = rhs;
     return node;
 }
 
@@ -107,6 +117,7 @@ static inline Node *newUnaryNode(Token *token, Node *operand) {
 static inline Node *newTemplateHeadNode(Token *token) {
     Node *node = newNode(ND_TEMPLATE_HEAD, token);
     node->span = NULL;
+    node->numSpans = 0;
     return node;
 }
 

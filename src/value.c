@@ -14,7 +14,7 @@ void printValueToFile(FILE *f, Value value) {
     if (IS_BOOL(value)) {
         fprintf(f, AS_BOOL(value) ? "true" : "false");
     } else if (IS_NUMBER(value)) {
-        fprintf(f, "%g", valueToNum(value));
+        fprintf(f, "%g", AS_NUMBER(value));
     } else if (IS_NIL(value)) {
         fprintf(f, "nil");
     } else if (IS_STRING(value)) {

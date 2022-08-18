@@ -16,6 +16,35 @@ assert() {
   fi
 }
 
+assertFile() {
+  file="$1"
+  expected="$2"
+
+  actual=`$DOJO ${file}`
+
+  echo  "$actual"
+  echo  "$expected"
+
+  if [ "${actual}" = "${expected}" ]; then
+    echo "$file OK"
+  else 
+    printRedText "$expected expected, but got $actual"
+    exit 1
+  fi
+}
+
+assertFileError() {
+  file="$1"
+  actual=`$DOJO ${file}`
+
+  if (($? > 0)); then
+    echo "$file OK"
+  else 
+    printRedText "Exptected error, but got $actual"
+    exit 1
+  fi
+}
+
 printRedText() {
   RED='\033[0;31m'
   NC='\033[0m'

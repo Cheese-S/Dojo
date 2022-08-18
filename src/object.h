@@ -28,6 +28,7 @@ static inline bool isObjType(Value value, ObjType type) {
     return IS_OBJ(value) && AS_OBJ(value)->type == type;
 }
 void freeObjs(Obj *head);
+bool isObjStrEqual(ObjString *a, ObjString *b);
 Value newObjStringInVal(const char *str, int len);
 ObjString *newObjString(const char *str, int len);
 void markUsingHeap(ObjString *str);

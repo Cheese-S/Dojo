@@ -14,7 +14,7 @@ static void terminateVM();
 
 static InterpreterResult run();
 
-static Value makeStrTemplate();
+static Value makeStrTemplate(int numSpans);
 
 static int currentOpLine();
 static void resetStack();
@@ -65,7 +65,8 @@ static InterpreterResult run() {
     } while (false)
 
     for (;;) {
-        disassembleInstruction(&compilingChunk, vm.ip - compilingChunk.codes);
+        // disassembleInstruction(&compilingChunk, vm.ip -
+        // compilingChunk.codes);
         uint8_t instruction = READ_BYTE();
         switch (instruction) {
         case OP_DEFINE_GLOBAL: {
@@ -93,6 +94,16 @@ static InterpreterResult run() {
                              name->length, name->str);
                 return INTERPRET_RUNTIME_ERROR;
             }
+            break;
+        }
+        case OP_GET_LOCAL: {
+            int pos = READ_BYTE();
+            push(vm.stack[pos]);
+            break;
+        }
+        case OP_SET_LOCAL: {
+            int pos = READ_BYTE();
+            vm.stack[pos] = peek(0);
             break;
         }
         case OP_PRINT: {
@@ -145,7 +156,8 @@ static InterpreterResult run() {
             break;
         }
         case OP_TEMPLATE: {
-            push(makeStrTemplate());
+            int numSpans = READ_BYTE();
+            push(makeStrTemplate(numSpans * 2 + 1));
             break;
         }
         case OP_NEGATE: {
@@ -181,6 +193,13 @@ static InterpreterResult run() {
         case OP_POP:
             pop();
             break;
+        case OP_POPN: {
+            uint8_t n = READ_BYTE();
+            while (n--) {
+                pop();
+            }
+            break;
+        }
         }
     }
 end:
@@ -196,7 +215,7 @@ static int currentOpLine() {
     return compilingChunk.lines[instruction];
 }
 
-static Value makeStrTemplate() {
+static Value makeStrTemplate(int numSpans) {
     FILE *stream;
     char *buf;
     size_t len;
@@ -205,7 +224,7 @@ static Value makeStrTemplate() {
         fprintf(stderr, "DOJO ERROR: Running out of memory\n");
         exit(1);
     }
-    while (vm.count > 0) {
+    while (numSpans--) {
         printValueToFile(stream, pop());
     }
     fflush(stream);

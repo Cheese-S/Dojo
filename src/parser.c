@@ -41,7 +41,7 @@ typedef struct {
 
 static void resetSentinel();
 static void skipNewlines();
-static void appendToStmts(Node *stmt);
+static void appendToStmts(Node **tail, Node *stmt);
 
 /* -------------------------------- STATEMENT ------------------------------- */
 
@@ -51,6 +51,7 @@ static Node *varDeclaration();
 
 static Node *stmt();
 static Node *printStmt();
+static Node *blockStmt();
 static Node *expressionStmt();
 
 static void expectStmtEnd(const char *str);
@@ -150,7 +151,7 @@ Node *parse(bool *hadError) {
         skipNewlines();
         Node *decl = declaration();
         if (decl) {
-            appendToStmts(decl);
+            appendToStmts(&parser.tail, decl);
         }
     }
     *hadError = parser.hadError;
@@ -163,9 +164,9 @@ static void skipNewlines() {
     }
 }
 
-static void appendToStmts(Node *stmt) {
-    parser.tail->nextStmt = stmt;
-    parser.tail = stmt;
+static void appendToStmts(Node **tail, Node *stmt) {
+    (*tail)->nextStmt = stmt;
+    *tail = stmt;
 }
 
 static Node *declaration() {
@@ -209,14 +210,15 @@ static Node *varDeclaration() {
     if (match(TOKEN_EQUAL)) {
         initializer = expression();
     }
-    consume(TOKEN_NEWLINE,
-            "Expect a newline character after a variable declaration");
+    expectStmtEnd("Expect a newline character after a variable declaration");
     return NEW_VAR_DECL(token, initializer);
 }
 
 static Node *stmt() {
     if (match(TOKEN_PRINT)) {
         return printStmt();
+    } else if (match(TOKEN_LEFT_BRACE)) {
+        return blockStmt();
     } else {
         return expressionStmt();
     }
@@ -228,6 +230,23 @@ static Node *printStmt() {
     Node *express = expression();
     expectStmtEnd("Expect a newline character after a print statement");
     return NEW_PRINT_STMT(token, express);
+}
+
+static Node *blockStmt() {
+    Token *token = parser.previous;
+    skipNewlines();
+    Node *tail = declaration();
+    Node *block = NEW_BLOCK_STMT(token, tail);
+
+    while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
+        skipNewlines();
+        Node *decl = declaration();
+        appendToStmts(&tail, decl);
+    }
+
+    consume(TOKEN_RIGHT_BRACE, "Expect '}' at the end of a block statement");
+    expectStmtEnd("Expect a new line character after a block statement");
+    return block;
 }
 
 static Node *expressionStmt() {
@@ -292,6 +311,7 @@ static Node *stringTemplate() {
         Node *span = NEW_TEMPLATE_SPAN(parser.current, express);
         prev->span = span;
         prev = span;
+        head->numSpans++;
         advance();
     }
 

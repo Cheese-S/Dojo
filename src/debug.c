@@ -6,6 +6,8 @@
 static void printLineInfo(Chunk *chunk, int offset);
 static bool isSameLineAsPrevCode(Chunk *chunk, int offset);
 
+static int jumpInstruction(const char *name, int sign, Chunk *chunk,
+                           int offset);
 static int constantInstruction(const char *name, Chunk *chunk, int offset);
 static int simpleInstruction(const char *name, int offset);
 
@@ -32,6 +34,14 @@ int disassembleInstruction(Chunk *chunk, int offset) {
         return constantInstruction("OP_GET_LOCAL", chunk, offset);
     case OP_SET_LOCAL:
         return constantInstruction("OP_SET_LOCAL", chunk, offset);
+    case OP_JUMP_IF_TRUE:
+        return jumpInstruction("OP_JUMP_IF_TRUE", 1, chunk, offset);
+    case OP_JUMP_IF_FALSE:
+        return jumpInstruction("OP_JUMP_IF_FALSE", 1, chunk, offset);
+    case OP_JUMP:
+        return jumpInstruction("OP_JUMP", 1, chunk, offset);
+    case OP_LOOP:
+        return jumpInstruction("OP_LOOP", -1, chunk, offset);
     case OP_PRINT:
         return simpleInstruction("OP_PRINT", offset);
     case OP_EQUAL:
@@ -90,6 +100,14 @@ static void printLineInfo(Chunk *chunk, int offset) {
 
 static bool isSameLineAsPrevCode(Chunk *chunk, int offset) {
     return offset > 0 && chunk->lines[offset] == chunk->lines[offset - 1];
+}
+
+static int jumpInstruction(const char *name, int sign, Chunk *chunk,
+                           int offset) {
+    uint16_t jump = (uint16_t)(chunk->codes[offset + 1] << 8);
+    jump |= chunk->codes[offset + 2];
+    printf("%-16s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
+    return offset + 3;
 }
 
 static int constantInstruction(const char *name, Chunk *chunk, int offset) {

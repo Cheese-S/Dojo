@@ -17,3 +17,16 @@ assert "true" "print !!true"
 assert "true" "print !!!!true"
 assert "false" "print !!false"
 assert "false" "print !!!!false"
+
+suite "Should invert any value"
+
+assertFile "tests/examples/unary/unary_not.dojo" 'false
+false
+false
+true
+true
+true
+true
+true
+false
+false'

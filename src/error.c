@@ -25,14 +25,20 @@ void errorAtToken(Token *token, const char *message) {
     END_PRINT_RED;
 }
 
+void internalError(const char *message) {
+    START_PRINT_RED;
+    fprintf(stderr, "[Internal Error]: %s", message);
+    END_PRINT_RED;
+}
+
 void runtimeError(int line, const char *format, ...) {
     START_PRINT_RED;
+    fprintf(stderr, "[line %d] in script, ", line);
     va_list args;
     va_start(args, format);
     vfprintf(stderr, format, args);
     va_end(args);
     fputs("\n", stderr);
 
-    fprintf(stderr, "[line %d] in script\n", line);
     END_PRINT_RED;
 }

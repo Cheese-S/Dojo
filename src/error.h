@@ -4,6 +4,6 @@
 #include "scanner.h"
 
 void errorAtToken(Token *token, const char *message);
-
+void internalError(const char *message);
 void runtimeError(int line, const char *format, ...);
 #endif

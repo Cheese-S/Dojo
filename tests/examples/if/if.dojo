@@ -1,0 +1,29 @@
+// You can write it like this
+if (true) print 0
+
+// Or like this
+if (true)
+    print 1
+
+// Or even like this
+if (true) {
+    var a = 2
+    print a
+}
+
+// The same applies to if else / else if
+if (false) 
+    print 3
+else if (false)
+    print 4
+else
+    print 5
+
+if (false) {
+    print 6
+} else if (false) {
+    print 7
+} else {
+    print 8
+}
+

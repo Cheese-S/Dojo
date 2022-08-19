@@ -7,6 +7,8 @@
 
 typedef enum {
     ND_VAR_DECL,
+    ND_WHILE,
+    ND_IF,
     ND_BLOCK,
     ND_PRINT,
     ND_EXPRESSION,
@@ -14,6 +16,8 @@ typedef enum {
     ND_ASSIGNMENT,
     ND_TERNARY,
     ND_BINARY,
+    ND_AND,
+    ND_OR,
     ND_UNARY,
     ND_VAR,
     ND_TEMPLATE_HEAD,
@@ -47,6 +51,28 @@ Node *newNode(NodeType type, Token *token);
 static inline Node *newVarDeclarationNode(Token *token, Node *initializer) {
     Node *node = newNode(ND_VAR_DECL, token);
     node->operand = initializer;
+    return node;
+}
+
+#define NEW_WHILE_STMT(token, condition, body)                                 \
+    newWhileNode(token, condition, body)
+
+static inline Node *newWhileNode(Token *token, Node *condition, Node *body) {
+    Node *node = newNode(ND_WHILE, token);
+    node->operand = condition;
+    node->thenBranch = body;
+    return node;
+}
+
+#define NEW_IF_STMT(token, condition, thenBranch, elseBranch)                  \
+    newIfNode(token, condition, thenBranch, elseBranch)
+
+static inline Node *newIfNode(Token *token, Node *condition, Node *thenBranch,
+                              Node *elseBranch) {
+    Node *node = newNode(ND_IF, token);
+    node->operand = condition;
+    node->thenBranch = thenBranch;
+    node->elseBranch = elseBranch;
     return node;
 }
 
@@ -92,6 +118,24 @@ static inline Node *newTernaryNode(Token *token, Node *condition,
     node->operand = condition;
     node->thenBranch = thenBranch;
     node->elseBranch = elseBranch;
+    return node;
+}
+
+#define NEW_AND(token, lhs, rhs) newAndNode(token, lhs, rhs)
+
+static inline Node *newAndNode(Token *token, Node *lhs, Node *rhs) {
+    Node *node = newNode(ND_AND, token);
+    node->lhs = lhs;
+    node->rhs = rhs;
+    return node;
+}
+
+#define NEW_OR(token, lhs, rhs) newOrNode(token, lhs, rhs)
+
+static inline Node *newOrNode(Token *token, Node *lhs, Node *rhs) {
+    Node *node = newNode(ND_OR, token);
+    node->lhs = lhs;
+    node->rhs = rhs;
     return node;
 }
 

@@ -22,9 +22,6 @@ assertFile() {
 
   actual=`$DOJO ${file}`
 
-  echo  "$actual"
-  echo  "$expected"
-
   if [ "${actual}" = "${expected}" ]; then
     echo "$file OK"
   else 

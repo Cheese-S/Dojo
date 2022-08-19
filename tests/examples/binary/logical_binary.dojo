@@ -1,0 +1,4 @@
+print nil || 3 - 3
+print true && 3 - 3
+print nil && true
+print 5 || false

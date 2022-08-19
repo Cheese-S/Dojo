@@ -16,6 +16,7 @@ static InterpreterResult run();
 
 static Value makeStrTemplate(int numSpans);
 
+static bool isFalsey();
 static int currentOpLine();
 static void resetStack();
 static void push(Value value);
@@ -56,6 +57,7 @@ static void terminateVM() {
 static InterpreterResult run() {
 #define READ_BYTE() (*vm.ip++)
 #define READ_CONSTANT() (getConstantAtIndex(&compilingChunk, READ_BYTE()))
+#define READ_SHORT() (vm.ip += 2, (uint16_t)((vm.ip[-2] << 8) | vm.ip[-1]))
 #define READ_STRING() (AS_STRING(READ_CONSTANT()))
 #define ARITHEMETIC_BINARY_OP(valueType, op)                                   \
     do {                                                                       \
@@ -104,6 +106,30 @@ static InterpreterResult run() {
         case OP_SET_LOCAL: {
             int pos = READ_BYTE();
             vm.stack[pos] = peek(0);
+            break;
+        }
+        case OP_LOOP: {
+            uint16_t jump = READ_SHORT();
+            vm.ip -= jump;
+            break;
+        }
+        case OP_JUMP: {
+            uint16_t jump = READ_SHORT();
+            vm.ip += jump;
+            break;
+        }
+        case OP_JUMP_IF_TRUE: {
+            uint16_t jump = READ_SHORT();
+            if (!isFalsey(peek(0))) {
+                vm.ip += jump;
+            }
+            break;
+        }
+        case OP_JUMP_IF_FALSE: {
+            uint16_t jump = READ_SHORT();
+            if (isFalsey(peek(0))) {
+                vm.ip += jump;
+            }
             break;
         }
         case OP_PRINT: {
@@ -157,6 +183,8 @@ static InterpreterResult run() {
         }
         case OP_TEMPLATE: {
             int numSpans = READ_BYTE();
+            // one span contains an expression and a string litreal
+            // we also need to pop the template head
             push(makeStrTemplate(numSpans * 2 + 1));
             break;
         }
@@ -169,8 +197,7 @@ static InterpreterResult run() {
             break;
         }
         case OP_NOT: {
-            Value val = pop();
-            push(val != TRUE_VAL ? TRUE_VAL : FALSE_VAL);
+            push(BOOL_VAL(isFalsey(pop())));
             break;
         }
         case OP_CONSTANT: {
@@ -206,8 +233,14 @@ end:
     return INTERPRET_OK;
 #undef ARITHEMETIC_BINARY_OP
 #undef READ_STRING
+#undef READ_SHORT
 #undef READ_CONSTANT
 #undef READ_BYTE
+}
+
+static bool isFalsey(Value val) {
+    return IS_NIL(val) || (IS_NUMBER(val) && !AS_NUMBER(val)) ||
+           (IS_BOOL(val) && !AS_BOOL(val));
 }
 
 static int currentOpLine() {

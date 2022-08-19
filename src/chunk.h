@@ -6,14 +6,17 @@
 
 typedef enum {
     OP_PRINT,
-
+    // Variable
     OP_DEFINE_GLOBAL,
     OP_GET_GLOBAL,
     OP_SET_GLOBAL,
     OP_GET_LOCAL,
     OP_SET_LOCAL,
-
-    OP_CONSTANT,
+    // Jump
+    OP_JUMP_IF_TRUE,
+    OP_JUMP_IF_FALSE,
+    OP_JUMP,
+    OP_LOOP,
     // Binary
     OP_ASSIGN,
     OP_EQUAL,
@@ -32,6 +35,7 @@ typedef enum {
     OP_NOT,
     OP_NEGATE,
     // Literal
+    OP_CONSTANT,
     OP_TEMPLATE,
     OP_TRUE,
     OP_FALSE,

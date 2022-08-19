@@ -42,13 +42,18 @@ static bool isAssignable(Node *lhs);
 
 static void emitConstant(Value value);
 static uint8_t pushIdentifier(Token *name);
-static bool findIdentifierConstantIdx(ObjString *identifier, Value *receiver);
 static uint8_t pushConstant(Value constant);
+static bool findIdentifierConstantIdx(ObjString *identifier, Value *receiver);
+static void emitBranch(Node *branch);
+static int emitJump(uint8_t jumpInstruction);
+static void emitLoop(int loopStart);
+static void patchJump(int offset);
 static void emitBytes(uint8_t byte1, uint8_t byte2);
 static void emitBinaryOp(TokenType op);
 static void emitByte(uint8_t byte);
 
 static void compilerError(Token *token, const char *msg);
+static void compilerInternalError(const char *msg);
 
 Compiler compiler;
 
@@ -75,6 +80,8 @@ bool compile(const char *source, Chunk *chunk) {
         return true;
     }
     compileStmts(compiler.script);
+    // TODO: remove this hack
+    compiler.currentCompiling = compiler.script;
     emitByte(OP_RETURN);
     return compiler.hadError || parserError;
 }
@@ -92,6 +99,7 @@ static void compileNode(Node *node) {
     if (node == NULL)
         return;
 
+    Node *prev = compiler.currentCompiling;
     compiler.currentCompiling = node;
 
     switch (node->type) {
@@ -104,23 +112,49 @@ static void compileNode(Node *node) {
             compileVarDeclValue(node->operand);
             defineLatestLocal(node->token);
         }
-        return;
+        break;
+    }
+    case ND_WHILE: {
+        int loopStart = currentChunk()->count;
+        compileNode(node->operand);
+        int jumpToEnd = emitJump(OP_JUMP_IF_FALSE);
+        emitByte(OP_POP);
+        compileNode(node->thenBranch);
+        emitLoop(loopStart);
+        patchJump(jumpToEnd);
+        break;
+    }
+    case ND_TERNARY:
+    case ND_IF: {
+        compileNode(node->operand);
+
+        int jumpToElse = emitJump(OP_JUMP_IF_FALSE);
+
+        emitBranch(node->thenBranch);
+
+        int jumpToEnd = emitJump(OP_JUMP);
+        patchJump(jumpToElse);
+
+        emitBranch(node->elseBranch);
+
+        patchJump(jumpToEnd);
+        break;
     }
     case ND_BLOCK: {
         beginScope();
         compileStmts(node->operand);
         endScope();
-        return;
+        break;
     }
     case ND_PRINT: {
         compileNode(node->operand);
         emitByte(OP_PRINT);
-        return;
+        break;
     }
     case ND_EXPRESSION: {
         compileNode(node->operand);
         emitByte(OP_POP);
-        return;
+        break;
     }
     case ND_ASSIGNMENT: {
         if (!isAssignable(node->lhs)) {
@@ -136,23 +170,36 @@ static void compileNode(Node *node) {
             emitBytes(OP_SET_GLOBAL, index);
         }
 
-        return;
+        break;
     }
-    case ND_TERNARY: {
-        return;
+    case ND_AND: {
+        compileNode(node->lhs);
+        int jumpToEnd = emitJump(OP_JUMP_IF_FALSE);
+        emitByte(OP_POP);
+        compileNode(node->rhs);
+        patchJump(jumpToEnd);
+        break;
+    }
+    case ND_OR: {
+        compileNode(node->lhs);
+        int jumpToEnd = emitJump(OP_JUMP_IF_TRUE);
+        emitByte(OP_POP);
+        compileNode(node->rhs);
+        patchJump(jumpToEnd);
+        break;
     }
     case ND_BINARY: {
         TokenType op = node->token->type;
         compileNode(node->lhs);
         compileNode(node->rhs);
         emitBinaryOp(op);
-        return;
+        break;
     }
     case ND_UNARY: {
         compileNode(node->operand);
         Opcode code = node->token->type == TOKEN_BANG ? OP_NOT : OP_NEGATE;
         emitByte(code);
-        return;
+        break;
     }
     case ND_VAR: {
         int vmStackPos = resolveLocal(&LOCAL_STATE(compiler), node->token);
@@ -162,7 +209,7 @@ static void compileNode(Node *node) {
             uint8_t index = pushIdentifier(node->token);
             emitBytes(OP_GET_GLOBAL, index);
         }
-        return;
+        break;
     }
     case ND_NUMBER:
         emitConstant(NUMBER_VAL(strtod(node->token->start, NULL)));
@@ -171,13 +218,13 @@ static void compileNode(Node *node) {
     case ND_STRING:
         emitConstant(
             newObjStringInVal(node->token->start + 1, node->token->length - 2));
-        return;
+        break;
     case ND_TEMPLATE_HEAD:
         compileNode(node->span);
         emitConstant(
             newObjStringInVal(node->token->start + 1, node->token->length - 1));
         emitBytes(OP_TEMPLATE, (uint8_t)(node->numSpans));
-        return;
+        break;
     case ND_TEMPLATE_SPAN: {
         int len = node->token->type == TOKEN_AFTER_TEMPLATE
                       ? node->token->length - 1
@@ -187,7 +234,7 @@ static void compileNode(Node *node) {
         }
         emitConstant(newObjStringInVal(node->token->start, len));
         compileNode(node->operand);
-        return;
+        break;
     }
     case ND_LITERAL: {
         TokenType op = node->token->type;
@@ -198,12 +245,14 @@ static void compileNode(Node *node) {
         } else {
             emitByte(OP_NIL);
         }
-        return;
+        break;
     }
 
     case ND_EMPTY:
-        return;
+        break;
     }
+
+    compiler.currentCompiling = prev;
 }
 
 static bool isGlobalScope() {
@@ -381,6 +430,41 @@ static void emitBinaryOp(TokenType type) {
     }
 }
 
+static void emitBranch(Node *branch) {
+    emitByte(OP_POP);
+    compileNode(branch);
+}
+
+static int emitJump(uint8_t jumpInstruction) {
+    emitByte(jumpInstruction);
+    emitByte(0xff);
+    emitByte(0xff);
+    return currentChunk()->count - 2;
+}
+
+static void patchJump(int offset) {
+    if (offset > UINT16_MAX) {
+        compilerError(compiler.currentCompiling->token,
+                      "Exceeded the maximum allowed jump distance");
+        return;
+    }
+    Chunk *chunk = currentChunk();
+    int jump = chunk->count - offset - 2;
+    chunk->codes[offset] = (jump >> 8) & 0xff;
+    chunk->codes[offset + 1] = jump & 0xff;
+}
+
+static void emitLoop(int loopStart) {
+    emitByte(OP_LOOP);
+    int offset = currentChunk()->count - loopStart + 2;
+    if (offset > UINT16_MAX) {
+        compilerError(compiler.currentCompiling->token, "Loop body too large.");
+        return;
+    }
+    emitByte((offset >> 8) & 0xff);
+    emitByte(offset & 0xff);
+}
+
 static void emitBytes(uint8_t byte1, uint8_t byte2) {
     emitByte(byte1);
     emitByte(byte2);
@@ -409,19 +493,25 @@ static void freeNode(Node *node) {
         return;
 
     switch (node->type) {
-    case ND_VAR_DECL:
+    case ND_WHILE:
+        freeNode(node->operand);
+        freeNode(node->thenBranch);
+        FREE(Node, node);
+        return;
+    case ND_TERNARY:
+    case ND_IF:
+        freeNode(node->elseBranch);
+        freeNode(node->thenBranch);
+        freeNode(node->operand);
+        FREE(Node, node);
         return;
     case ND_BLOCK:
         freeStmts(node->operand);
         FREE(Node, node);
         return;
-    case ND_TERNARY:
-        freeNode(node->thenBranch);
-        freeNode(node->elseBranch);
-        freeNode(node->operand);
-        FREE(Node, node);
-        return;
     case ND_ASSIGNMENT:
+    case ND_AND:
+    case ND_OR:
     case ND_BINARY:
         freeNode(node->lhs);
         freeNode(node->rhs);
@@ -436,6 +526,7 @@ static void freeNode(Node *node) {
         freeNode(node->operand);
         FREE(Node, node);
         return;
+    case ND_VAR_DECL:
     case ND_EXPRESSION:
     case ND_PRINT:
     case ND_UNARY:
@@ -456,4 +547,9 @@ static void freeNode(Node *node) {
 static void compilerError(Token *token, const char *msg) {
     compiler.hadError = true;
     errorAtToken(token, msg);
+}
+
+static void compilerInternalError(const char *msg) {
+    compiler.hadError = true;
+    internalError(msg);
 }

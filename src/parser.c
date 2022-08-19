@@ -46,12 +46,17 @@ static void appendToStmts(Node **tail, Node *stmt);
 /* -------------------------------- STATEMENT ------------------------------- */
 
 static Node *declaration();
-static void synchronize();
 static Node *varDeclaration();
 
 static Node *stmt();
-static Node *printStmt();
+static Node *whileStmt();
+static Node *ifStmt();
+static bool isLastChainBlock(Node *thenBranch, Node *elseBranch);
+static Node *parseBranch();
+static Node *chainBlockStmt();
 static Node *blockStmt();
+static Node *parseBlock();
+static Node *printStmt();
 static Node *expressionStmt();
 
 static void expectStmtEnd(const char *str);
@@ -62,6 +67,8 @@ static Node *expression();
 static Node *grouping();
 static Node *assignment();
 static Node *ternary();
+static Node *and_();
+static Node *or_();
 static Node *binary();
 static Node *unary();
 static Node *variable();
@@ -72,6 +79,8 @@ static Node *literal();
 static Node *parsePrecedence(Precedence precedence);
 static ParseRule *getRule(TokenType type);
 
+/* ----------------------------- PARSER FUNCIONS ---------------------------- */
+
 static void advance();
 static bool check(TokenType type);
 static bool match(TokenType type);
@@ -79,6 +88,7 @@ static bool consume(TokenType type, const char *message);
 static void errorAtCurrent(const char *msg);
 static void errorAtPrevious(const char *msg);
 static void parserError(Token *token, const char *msg);
+static void synchronize();
 
 ParseRule rules[] = {
     [TOKEN_LEFT_PAREN] = {grouping, NULL, PREC_NONE},
@@ -105,7 +115,7 @@ ParseRule rules[] = {
     [TOKEN_STRING] = {string, NULL, PREC_NONE},
     [TOKEN_PRE_TEMPLATE] = {stringTemplate, NULL, PREC_NONE},
     [TOKEN_NUMBER] = {number, NULL, PREC_NONE},
-    [TOKEN_AND] = {NULL, NULL, PREC_NONE},
+    [TOKEN_AND] = {NULL, and_, PREC_AND},
     [TOKEN_CLASS] = {NULL, NULL, PREC_NONE},
     [TOKEN_ELSE] = {NULL, NULL, PREC_NONE},
     [TOKEN_FALSE] = {literal, NULL, PREC_NONE},
@@ -113,7 +123,7 @@ ParseRule rules[] = {
     [TOKEN_FN] = {NULL, NULL, PREC_NONE},
     [TOKEN_IF] = {NULL, NULL, PREC_NONE},
     [TOKEN_NIL] = {literal, NULL, PREC_NONE},
-    [TOKEN_OR] = {NULL, NULL, PREC_NONE},
+    [TOKEN_OR] = {NULL, or_, PREC_OR},
     [TOKEN_PRINT] = {NULL, NULL, PREC_NONE},
     [TOKEN_RETURN] = {NULL, NULL, PREC_NONE},
     [TOKEN_SUPER] = {NULL, NULL, PREC_NONE},
@@ -182,27 +192,6 @@ static Node *declaration() {
     return decl;
 }
 
-static void synchronize() {
-    parser.panicMode = false;
-    while (parser.current->type != TOKEN_EOF) {
-        if (parser.previous->type == TOKEN_NEWLINE)
-            return;
-        switch (parser.current->type) {
-        case TOKEN_CLASS:
-        case TOKEN_FN:
-        case TOKEN_VAR:
-        case TOKEN_FOR:
-        case TOKEN_IF:
-        case TOKEN_WHILE:
-        case TOKEN_PRINT:
-        case TOKEN_RETURN:
-            return;
-        default:;
-        }
-        advance();
-    }
-}
-
 static Node *varDeclaration() {
     consume(TOKEN_IDENTIFIER, "Expect an identifier after var.");
     Token *token = parser.previous;
@@ -215,24 +204,73 @@ static Node *varDeclaration() {
 }
 
 static Node *stmt() {
-    if (match(TOKEN_PRINT)) {
-        return printStmt();
+    if (match(TOKEN_WHILE)) {
+        return whileStmt();
+    } else if (match(TOKEN_IF)) {
+        return ifStmt();
     } else if (match(TOKEN_LEFT_BRACE)) {
         return blockStmt();
+    } else if (match(TOKEN_PRINT)) {
+        return printStmt();
     } else {
         return expressionStmt();
     }
 }
 
-static Node *printStmt() {
-    // TODO: Replace print stmt with native function
+static Node *whileStmt() {
     Token *token = parser.previous;
-    Node *express = expression();
-    expectStmtEnd("Expect a newline character after a print statement");
-    return NEW_PRINT_STMT(token, express);
+    consume(TOKEN_LEFT_PAREN, "Expect a '(' after 'while'.");
+    Node *condition = expression();
+    consume(TOKEN_RIGHT_PAREN, "Expect a ')' after the if condition.");
+    skipNewlines();
+    Node *body = stmt();
+    return NEW_WHILE_STMT(token, condition, body);
+}
+
+static Node *ifStmt() {
+    Token *token = parser.previous;
+    consume(TOKEN_LEFT_PAREN, "Expect a '(' after 'if'.");
+    Node *condition = expression();
+    consume(TOKEN_RIGHT_PAREN, "Expect a ')' after the if condition.");
+    Node *thenBranch = parseBranch();
+    Node *elseBranch = NULL;
+    if (match(TOKEN_ELSE)) {
+        elseBranch = parseBranch();
+    }
+
+    if (isLastChainBlock(thenBranch, elseBranch)) {
+        expectStmtEnd("Expect a newline character after an if-else statement");
+    }
+
+    return NEW_IF_STMT(token, condition, thenBranch, elseBranch);
+}
+
+static Node *parseBranch() {
+    skipNewlines();
+    if (match(TOKEN_LEFT_BRACE)) {
+        return chainBlockStmt();
+    } else {
+        return stmt();
+    }
+}
+
+static Node *chainBlockStmt() {
+    Node *block = parseBlock();
+    return block;
+}
+
+static bool isLastChainBlock(Node *thenBranch, Node *elseBranch) {
+    return ((thenBranch->type == ND_BLOCK && !elseBranch) ||
+            (elseBranch && elseBranch->type == ND_BLOCK));
 }
 
 static Node *blockStmt() {
+    Node *block = parseBlock();
+    expectStmtEnd("Expect a new line character after a block statement");
+    return block;
+}
+
+static Node *parseBlock() {
     Token *token = parser.previous;
     skipNewlines();
     Node *tail = declaration();
@@ -245,8 +283,15 @@ static Node *blockStmt() {
     }
 
     consume(TOKEN_RIGHT_BRACE, "Expect '}' at the end of a block statement");
-    expectStmtEnd("Expect a new line character after a block statement");
     return block;
+}
+
+static Node *printStmt() {
+    // TODO: Replace print stmt with native function
+    Token *token = parser.previous;
+    Node *express = expression();
+    expectStmtEnd("Expect a newline character after a print statement");
+    return NEW_PRINT_STMT(token, express);
 }
 
 static Node *expressionStmt() {
@@ -284,6 +329,18 @@ static Node *ternary(Node *condition) {
     consume(TOKEN_COLON, "Expect ':' after expression");
     Node *elseBranch = parsePrecedence(getRule(TOKEN_QUESTION)->precedence - 1);
     return NEW_TERNARY(token, condition, thenBranch, elseBranch);
+}
+
+static Node *and_(Node *lhs) {
+    Token *op = parser.previous;
+    Node *rhs = parsePrecedence(PREC_AND);
+    return NEW_AND(op, lhs, rhs);
+}
+
+static Node *or_(Node *lhs) {
+    Token *op = parser.previous;
+    Node *rhs = parsePrecedence(PREC_OR);
+    return NEW_OR(op, lhs, rhs);
 }
 
 static Node *binary(Node *lhs) {
@@ -400,4 +457,25 @@ static void parserError(Token *token, const char *msg) {
     parser.panicMode = true;
     parser.hadError = true;
     errorAtToken(token, msg);
+}
+
+static void synchronize() {
+    parser.panicMode = false;
+    while (parser.current->type != TOKEN_EOF) {
+        if (parser.previous->type == TOKEN_NEWLINE)
+            return;
+        switch (parser.current->type) {
+        case TOKEN_CLASS:
+        case TOKEN_FN:
+        case TOKEN_VAR:
+        case TOKEN_FOR:
+        case TOKEN_IF:
+        case TOKEN_WHILE:
+        case TOKEN_PRINT:
+        case TOKEN_RETURN:
+            return;
+        default:;
+        }
+        advance();
+    }
 }

@@ -48,3 +48,8 @@ assert "true" "print 3.5 != 3.6"
 assert "false" "print 3.5 == 3.6"
 assert "false" "print 3.5 != 3.5"
 
+suite "'&&' and '||' should give the correct result"
+assertFile "tests/examples/binary/logical_binary.dojo" '0
+0
+nil
+5'

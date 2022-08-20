@@ -17,6 +17,13 @@ typedef struct {
 } LocalState;
 
 typedef struct {
+    int innermostLoopStart;
+    int innermostLoopScopeDepth;
+    int surrondingLoopStart;
+    int surrondingLoopScopeDepth;
+} LoopState;
+
+typedef struct {
     int depth;
 } Scope;
 

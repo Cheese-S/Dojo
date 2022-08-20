@@ -49,7 +49,13 @@ static Node *declaration();
 static Node *varDeclaration();
 
 static Node *stmt();
+static Node *forStmt();
+static Node *parseForInit();
+static Node *parseForCondition();
+static Node *parseForIncrement();
 static Node *whileStmt();
+static Node *continueStmt();
+static Node *breakStmt();
 static Node *ifStmt();
 static bool isLastChainBlock(Node *thenBranch, Node *elseBranch);
 static Node *parseBranch();
@@ -193,7 +199,7 @@ static Node *declaration() {
 }
 
 static Node *varDeclaration() {
-    consume(TOKEN_IDENTIFIER, "Expect an identifier after var.");
+    consume(TOKEN_IDENTIFIER, "Expect an identifier after 'var'.");
     Token *token = parser.previous;
     Node *initializer = NULL;
     if (match(TOKEN_EQUAL)) {
@@ -204,8 +210,14 @@ static Node *varDeclaration() {
 }
 
 static Node *stmt() {
-    if (match(TOKEN_WHILE)) {
+    if (match(TOKEN_FOR)) {
+        return forStmt();
+    } else if (match(TOKEN_WHILE)) {
         return whileStmt();
+    } else if (match(TOKEN_CONTINUE)) {
+        return continueStmt();
+    } else if (match(TOKEN_BREAK)) {
+        return breakStmt();
     } else if (match(TOKEN_IF)) {
         return ifStmt();
     } else if (match(TOKEN_LEFT_BRACE)) {
@@ -217,6 +229,54 @@ static Node *stmt() {
     }
 }
 
+static Node *forStmt() {
+    Token *token = parser.previous;
+    consume(TOKEN_LEFT_PAREN, "Expect a '(' after 'for'.");
+    Node *init = parseForInit();
+    consume(TOKEN_SEMICOLON, "Expect a ';'.");
+    Node *condition = parseForCondition();
+    consume(TOKEN_SEMICOLON, "Expect a ';'.");
+    Node *increment = parseForIncrement();
+    consume(TOKEN_RIGHT_PAREN, "Expect a ')' after for clauses.");
+    skipNewlines();
+    Node *body = stmt();
+    return NEW_FOR_STMT(token, init, condition, increment, body);
+}
+
+static Node *parseForInit() {
+    if (check(TOKEN_SEMICOLON)) {
+        return NULL;
+    } else if (match(TOKEN_VAR)) {
+        consume(TOKEN_IDENTIFIER, "Expect an identifier after 'var'.");
+        Token *token = parser.previous;
+        Node *initializer = NULL;
+        if (match(TOKEN_EQUAL)) {
+            initializer = expression();
+        }
+        return NEW_VAR_DECL(token, initializer);
+    } else {
+        Token *token = parser.previous;
+        Node *express = expression();
+        return NEW_EXPRESS_STMT(token, express);
+    }
+}
+
+static Node *parseForCondition() {
+    if (check(TOKEN_SEMICOLON)) {
+        return NULL;
+    } else {
+        return expression();
+    }
+}
+
+static Node *parseForIncrement() {
+    if (check(TOKEN_RIGHT_PAREN)) {
+        return NULL;
+    } else {
+        return expression();
+    }
+}
+
 static Node *whileStmt() {
     Token *token = parser.previous;
     consume(TOKEN_LEFT_PAREN, "Expect a '(' after 'while'.");
@@ -225,6 +285,18 @@ static Node *whileStmt() {
     skipNewlines();
     Node *body = stmt();
     return NEW_WHILE_STMT(token, condition, body);
+}
+
+static Node *breakStmt() {
+    Token *token = parser.previous;
+    expectStmtEnd("Expect a newline character after a break statement.");
+    return NEW_BREAK_STMT(token);
+}
+
+static Node *continueStmt() {
+    Token *token = parser.previous;
+    expectStmtEnd("Expect a newline character after a continue statement.");
+    return NEW_CONTINUE_STMT(token);
 }
 
 static Node *ifStmt() {
@@ -473,6 +545,8 @@ static void synchronize() {
         case TOKEN_WHILE:
         case TOKEN_PRINT:
         case TOKEN_RETURN:
+        case TOKEN_BREAK:
+        case TOKEN_CONTINUE:
             return;
         default:;
         }

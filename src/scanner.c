@@ -182,6 +182,15 @@ void scanToken() {
     case '/':
         appendNewToken(makeToken(TOKEN_SLASH));
         return;
+    case '?':
+        appendNewToken(makeToken(TOKEN_QUESTION));
+        return;
+    case ':':
+        appendNewToken(makeToken(TOKEN_COLON));
+        return;
+    case ';':
+        appendNewToken(makeToken(TOKEN_SEMICOLON));
+        return;
     case '!':
         appendNewToken(makeToken(match('=') ? TOKEN_BANG_EQUAL : TOKEN_BANG));
         return;
@@ -207,12 +216,6 @@ void scanToken() {
             return;
         }
         break;
-    case '?':
-        appendNewToken(makeToken(TOKEN_QUESTION));
-        return;
-    case ':':
-        appendNewToken(makeToken(TOKEN_COLON));
-        return;
     case '"':
         string();
         return;

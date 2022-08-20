@@ -17,6 +17,7 @@
 #define LOCAL_COUNT(compiler) (compiler.localState.count)
 #define LOCAL_ARR(compiler) (compiler.localState.locals)
 #define NOT_INITIALIZED -1
+#define JUMP_PLACEHOLDER 0xff
 
 static Chunk *currentChunk();
 
@@ -30,7 +31,11 @@ static int currentScopeDepth();
 static void beginScope();
 static void endScope();
 
-static void discardLocals();
+static bool isInLoop();
+static void beginLoop();
+static void endLoop();
+
+static void discardHigherDepthLocals();
 static void compileVarDeclValue(Node *operand);
 static void defineGlobal(Token *name);
 static void declareLocal(Token *name);
@@ -48,6 +53,8 @@ static void emitBranch(Node *branch);
 static int emitJump(uint8_t jumpInstruction);
 static void emitLoop(int loopStart);
 static void patchJump(int offset);
+static void patchBreaks();
+static bool isUnpatchedBreak(uint8_t *code, int offset);
 static void emitBytes(uint8_t byte1, uint8_t byte2);
 static void emitBinaryOp(TokenType op);
 static void emitByte(uint8_t byte);
@@ -56,6 +63,11 @@ static void compilerError(Token *token, const char *msg);
 static void compilerInternalError(const char *msg);
 
 Compiler compiler;
+
+static LoopState loopState = {.innermostLoopStart = NOT_INITIALIZED,
+                              .innermostLoopScopeDepth = NOT_INITIALIZED,
+                              .surrondingLoopStart = NOT_INITIALIZED,
+                              .surrondingLoopScopeDepth = NOT_INITIALIZED};
 
 void initCompiler(Chunk *chunk) {
     compiler.compilingChunk = chunk;
@@ -70,6 +82,8 @@ void terminateCompiler() {
     freeMap(&compiler.stringConstants);
     terminateParser();
 }
+
+// TODO: ALLOW EMPTY FILE
 
 bool compile(const char *source, Chunk *chunk) {
     bool parserError = false;
@@ -114,7 +128,42 @@ static void compileNode(Node *node) {
         }
         break;
     }
+    // The bytecode is emitted in the following order
+    // init -> condition -> if false jump to end -> goto end -> increment ->
+    // goto condition -> body -> goto increment
+    case ND_FOR: {
+        beginScope();
+        compileNode(node->init);
+        beginLoop();
+        int jumpToEnd = NOT_INITIALIZED;
+        if (node->operand) {
+            compileNode(node->operand);
+            jumpToEnd = emitJump(OP_JUMP_IF_FALSE);
+            emitByte(OP_POP);
+        }
+        if (node->increment) {
+            int jumpToBody = emitJump(OP_JUMP);
+            int incrementStart = currentChunk()->count;
+            compileNode(node->increment);
+            emitByte(OP_POP);
+            emitLoop(loopState.innermostLoopStart);
+            loopState.innermostLoopStart = incrementStart;
+            patchJump(jumpToBody);
+        }
+        compileNode(node->thenBranch);
+
+        emitLoop(loopState.innermostLoopStart);
+        if (jumpToEnd != NOT_INITIALIZED) {
+            patchJump(jumpToEnd);
+            emitByte(OP_POP);
+        }
+        patchBreaks();
+        endLoop();
+        endScope();
+        break;
+    }
     case ND_WHILE: {
+        beginLoop();
         int loopStart = currentChunk()->count;
         compileNode(node->operand);
         int jumpToEnd = emitJump(OP_JUMP_IF_FALSE);
@@ -122,6 +171,29 @@ static void compileNode(Node *node) {
         compileNode(node->thenBranch);
         emitLoop(loopStart);
         patchJump(jumpToEnd);
+        emitByte(OP_POP);
+        patchBreaks();
+        endLoop();
+        break;
+    }
+    case ND_CONTINUE: {
+        if (!isInLoop()) {
+            compilerError(
+                node->token,
+                "Cannot use continue statement outside a loop statement. ");
+        }
+        discardHigherDepthLocals(loopState.innermostLoopScopeDepth);
+        emitLoop(loopState.innermostLoopStart);
+        break;
+    }
+    case ND_BREAK: {
+        if (!isInLoop()) {
+            compilerError(
+                node->token,
+                "Cannot use break statement outside a break statement. ");
+        }
+        discardHigherDepthLocals(loopState.innermostLoopScopeDepth);
+        emitJump(OP_JUMP);
         break;
     }
     case ND_TERNARY:
@@ -269,19 +341,34 @@ static void beginScope() {
 
 static void endScope() {
     compiler.scope.depth--;
-    discardLocals();
+    discardHigherDepthLocals(currentScopeDepth());
 }
 
-static void discardLocals() {
+static void discardHigherDepthLocals(int depth) {
     int discarded = 0;
     while (LOCAL_COUNT(compiler) > 0 &&
-           LOCAL_ARR(compiler)[LOCAL_COUNT(compiler) - 1].depth >
-               currentScopeDepth()) {
+           LOCAL_ARR(compiler)[LOCAL_COUNT(compiler) - 1].depth > depth) {
         discarded++;
         LOCAL_COUNT(compiler)--;
     }
     emitBytes(OP_POPN, discarded);
 };
+
+static void beginLoop() {
+    loopState.surrondingLoopScopeDepth = loopState.innermostLoopScopeDepth;
+    loopState.surrondingLoopStart = loopState.innermostLoopStart;
+    loopState.innermostLoopStart = currentChunk()->count;
+    loopState.innermostLoopScopeDepth = currentScopeDepth();
+}
+
+static void endLoop() {
+    loopState.innermostLoopStart = loopState.surrondingLoopStart;
+    loopState.innermostLoopScopeDepth = loopState.surrondingLoopScopeDepth;
+}
+
+static bool isInLoop() {
+    return loopState.innermostLoopStart != NOT_INITIALIZED;
+}
 
 static void defineGlobal(Token *name) {
     uint8_t index = pushIdentifier(name);
@@ -437,8 +524,8 @@ static void emitBranch(Node *branch) {
 
 static int emitJump(uint8_t jumpInstruction) {
     emitByte(jumpInstruction);
-    emitByte(0xff);
-    emitByte(0xff);
+    emitByte(JUMP_PLACEHOLDER);
+    emitByte(JUMP_PLACEHOLDER);
     return currentChunk()->count - 2;
 }
 
@@ -452,6 +539,22 @@ static void patchJump(int offset) {
     int jump = chunk->count - offset - 2;
     chunk->codes[offset] = (jump >> 8) & 0xff;
     chunk->codes[offset + 1] = jump & 0xff;
+}
+
+static void patchBreaks() {
+    Chunk *chunk = currentChunk();
+    int loopEnd = chunk->count;
+    for (int i = loopState.innermostLoopStart; i < loopEnd - 2; i++) {
+        if (isUnpatchedBreak(chunk->codes, i)) {
+            patchJump(i + 1);
+            i = i + 2;
+        }
+    }
+}
+
+static bool isUnpatchedBreak(uint8_t *code, int offset) {
+    return code[offset] == OP_JUMP && code[offset + 1] == JUMP_PLACEHOLDER &&
+           code[offset + 2] == JUMP_PLACEHOLDER;
 }
 
 static void emitLoop(int loopStart) {
@@ -493,6 +596,13 @@ static void freeNode(Node *node) {
         return;
 
     switch (node->type) {
+    case ND_FOR:
+        freeNode(node->init);
+        freeNode(node->operand);
+        freeNode(node->increment);
+        freeNode(node->thenBranch);
+        FREE(Node, node);
+        return;
     case ND_WHILE:
         freeNode(node->operand);
         freeNode(node->thenBranch);
@@ -533,6 +643,8 @@ static void freeNode(Node *node) {
         freeNode(node->operand);
         FREE(Node, node);
         return;
+    case ND_BREAK:
+    case ND_CONTINUE:
     case ND_VAR:
     case ND_STRING:
     case ND_NUMBER:

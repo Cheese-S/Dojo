@@ -1,0 +1,15 @@
+// You may omit the block if there is only one statement in the loop body
+for (var i = 0; i < 5; i = i + 1) 
+    print i
+
+
+// Use a block statement when there are multiple statements
+for (var i = 0; i < 5; i = i + 1) {
+    var a = i
+    print a 
+}
+
+for (;;) {
+    print 5
+    break
+}

@@ -7,7 +7,10 @@
 
 typedef enum {
     ND_VAR_DECL,
+    ND_FOR,
     ND_WHILE,
+    ND_BREAK,
+    ND_CONTINUE,
     ND_IF,
     ND_BLOCK,
     ND_PRINT,
@@ -41,6 +44,8 @@ typedef struct Node {
     struct Node *span;
     struct Node *thenBranch;
     struct Node *elseBranch;
+    struct Node *increment;
+    struct Node *init;
 } Node;
 
 Node *newNode(NodeType type, Token *token);
@@ -54,6 +59,19 @@ static inline Node *newVarDeclarationNode(Token *token, Node *initializer) {
     return node;
 }
 
+#define NEW_FOR_STMT(token, init, condition, increment, body)                  \
+    newForNode(token, init, condition, increment, body)
+
+static inline Node *newForNode(Token *token, Node *init, Node *condition,
+                               Node *increment, Node *body) {
+    Node *node = newNode(ND_FOR, token);
+    node->init = init;
+    node->operand = condition;
+    node->increment = increment;
+    node->thenBranch = body;
+    return node;
+}
+
 #define NEW_WHILE_STMT(token, condition, body)                                 \
     newWhileNode(token, condition, body)
 
@@ -63,6 +81,10 @@ static inline Node *newWhileNode(Token *token, Node *condition, Node *body) {
     node->thenBranch = body;
     return node;
 }
+
+#define NEW_CONTINUE_STMT(token) newNode(ND_CONTINUE, token);
+
+#define NEW_BREAK_STMT(token) newNode(ND_BREAK, token);
 
 #define NEW_IF_STMT(token, condition, thenBranch, elseBranch)                  \
     newIfNode(token, condition, thenBranch, elseBranch)
@@ -92,7 +114,7 @@ static inline Node *newPrintNode(Token *token, Node *express) {
     return node;
 }
 
-#define NEW_EXPRESS_STMT(expression, line) newExpressionNode(expression, line)
+#define NEW_EXPRESS_STMT(token, express) newExpressionNode(token, express)
 
 static inline Node *newExpressionNode(Token *token, Node *expression) {
     Node *node = newNode(ND_EXPRESSION, token);

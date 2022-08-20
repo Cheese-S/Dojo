@@ -1,0 +1,5 @@
+// break and continue can only be used inside a loop otherwise it's an error
+
+break
+
+continue

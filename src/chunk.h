@@ -6,6 +6,7 @@
 
 typedef enum {
     OP_PRINT,
+    OP_CALL,
     // Variable
     OP_DEFINE_GLOBAL,
     OP_GET_GLOBAL,

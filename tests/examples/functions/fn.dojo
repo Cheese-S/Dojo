@@ -1,0 +1,24 @@
+// A function is defined as follows
+
+fn function(a, b, c) {
+    print a + b + c
+}
+
+// Called as follows
+
+function(1, 2, 3 + 5)
+
+
+// You can also print the function
+
+print `This is the name of the function ${function}`
+
+// Function can of course be recursive
+
+fn fib(n) {
+    if (n < 2)
+        return n
+    return fib(n - 2) + fib(n - 1)
+}
+
+print fib(8)

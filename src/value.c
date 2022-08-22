@@ -17,9 +17,8 @@ void printValueToFile(FILE *f, Value value) {
         fprintf(f, "%g", AS_NUMBER(value));
     } else if (IS_NIL(value)) {
         fprintf(f, "nil");
-    } else if (IS_STRING(value)) {
-        ObjString *str = AS_STRING(value);
-        fprintf(f, "%.*s", str->length, str->str);
+    } else if (IS_OBJ(value)) {
+        printObjToFile(f, value);
     }
 }
 

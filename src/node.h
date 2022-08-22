@@ -6,6 +6,8 @@
 #include "value.h"
 
 typedef enum {
+    ND_FN_DECL,
+    ND_PARAM,
     ND_VAR_DECL,
     ND_FOR,
     ND_WHILE,
@@ -15,7 +17,9 @@ typedef enum {
     ND_BLOCK,
     ND_PRINT,
     ND_EXPRESSION,
+    ND_RETURN,
 
+    ND_CALL,
     ND_ASSIGNMENT,
     ND_TERNARY,
     ND_BINARY,
@@ -36,12 +40,11 @@ typedef enum {
 typedef struct Node {
     NodeType type;
     Token *token;
-    int numSpans;
-    struct Node *nextStmt;
+    int count;
+    struct Node *next;
     struct Node *lhs;
     struct Node *rhs;
     struct Node *operand;
-    struct Node *span;
     struct Node *thenBranch;
     struct Node *elseBranch;
     struct Node *increment;
@@ -49,6 +52,24 @@ typedef struct Node {
 } Node;
 
 Node *newNode(NodeType type, Token *token);
+
+#define NEW_FN_DECL(token, params, body)                                       \
+    newFnDeclarationNode(token, params, body)
+
+static inline Node *newFnDeclarationNode(Token *token, Node *params,
+                                         Node *body) {
+    Node *node = newNode(ND_FN_DECL, token);
+    node->operand = params;
+    node->thenBranch = body;
+    return node;
+}
+
+#define NEW_PARAM(token) newParamNode(token)
+
+static inline Node *newParamNode(Token *token) {
+    Node *node = newNode(ND_PARAM, token);
+    return node;
+}
 
 #define NEW_VAR_DECL(token, initializer)                                       \
     newVarDeclarationNode(token, initializer)
@@ -114,11 +135,28 @@ static inline Node *newPrintNode(Token *token, Node *express) {
     return node;
 }
 
+#define NEW_RETURN_STMT(token, returnVal) newReturnNode(token, returnVal)
+
+static inline Node *newReturnNode(Token *token, Node *returnVal) {
+    Node *node = newNode(ND_RETURN, token);
+    node->operand = returnVal;
+    return node;
+}
+
 #define NEW_EXPRESS_STMT(token, express) newExpressionNode(token, express)
 
 static inline Node *newExpressionNode(Token *token, Node *expression) {
     Node *node = newNode(ND_EXPRESSION, token);
     node->operand = expression;
+    return node;
+}
+
+#define NEW_CALL(token, lhs, args) newCallNode(token, lhs, args)
+
+static inline Node *newCallNode(Token *token, Node *lhs, Node *args) {
+    Node *node = newNode(ND_CALL, token);
+    node->lhs = lhs;
+    node->operand = args;
     return node;
 }
 
@@ -182,8 +220,8 @@ static inline Node *newUnaryNode(Token *token, Node *operand) {
 
 static inline Node *newTemplateHeadNode(Token *token) {
     Node *node = newNode(ND_TEMPLATE_HEAD, token);
-    node->span = NULL;
-    node->numSpans = 0;
+    node->next = NULL;
+    node->count = 0;
     return node;
 }
 
@@ -200,7 +238,6 @@ static inline Node *newVarNode(Token *token) {
 static inline Node *newTemplateSpanNode(Token *token, Node *expression) {
     Node *node = newNode(ND_TEMPLATE_SPAN, token);
     node->operand = expression;
-    node->span = NULL;
     return node;
 }
 

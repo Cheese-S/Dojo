@@ -41,28 +41,31 @@ typedef struct {
 
 static void resetSentinel();
 static void skipNewlines();
-static void appendToStmts(Node **tail, Node *stmt);
+static void appendToNext(Node **tail, Node *stmt);
 
 /* -------------------------------- STATEMENT ------------------------------- */
 
 static Node *declaration();
+static Node *fnDeclaration();
+static Node *parameters();
 static Node *varDeclaration();
 
 static Node *stmt();
 static Node *forStmt();
-static Node *parseForInit();
-static Node *parseForCondition();
-static Node *parseForIncrement();
+static Node *forInit();
+static Node *forCondition();
+static Node *forIncrement();
 static Node *whileStmt();
 static Node *continueStmt();
 static Node *breakStmt();
 static Node *ifStmt();
 static bool isLastChainBlock(Node *thenBranch, Node *elseBranch);
-static Node *parseBranch();
+static Node *branch();
 static Node *chainBlockStmt();
 static Node *blockStmt();
 static Node *parseBlock();
 static Node *printStmt();
+static Node *returnStmt();
 static Node *expressionStmt();
 
 static void expectStmtEnd(const char *str);
@@ -70,6 +73,8 @@ static void expectStmtEnd(const char *str);
 /* ------------------------------- EXPRESSION ------------------------------- */
 
 static Node *expression();
+static Node *call();
+static Node *arguments();
 static Node *grouping();
 static Node *assignment();
 static Node *ternary();
@@ -97,7 +102,7 @@ static void parserError(Token *token, const char *msg);
 static void synchronize();
 
 ParseRule rules[] = {
-    [TOKEN_LEFT_PAREN] = {grouping, NULL, PREC_NONE},
+    [TOKEN_LEFT_PAREN] = {grouping, call, PREC_CALL},
     [TOKEN_RIGHT_PAREN] = {NULL, NULL, PREC_NONE},
     [TOKEN_LEFT_BRACE] = {NULL, NULL, PREC_NONE},
     [TOKEN_RIGHT_BRACE] = {NULL, NULL, PREC_NONE},
@@ -157,7 +162,7 @@ void terminateParser() {
 static void resetSentinel() {
     SENTINEL.type = ND_EMPTY;
     SENTINEL.token = NULL;
-    SENTINEL.nextStmt = NULL;
+    SENTINEL.next = NULL;
 }
 
 Node *parse(bool *hadError) {
@@ -167,11 +172,11 @@ Node *parse(bool *hadError) {
         skipNewlines();
         Node *decl = declaration();
         if (decl) {
-            appendToStmts(&parser.tail, decl);
+            appendToNext(&parser.tail, decl);
         }
     }
     *hadError = parser.hadError;
-    return parser.stmts->nextStmt;
+    return parser.stmts->next;
 }
 
 static void skipNewlines() {
@@ -180,15 +185,18 @@ static void skipNewlines() {
     }
 }
 
-static void appendToStmts(Node **tail, Node *stmt) {
-    (*tail)->nextStmt = stmt;
+static void appendToNext(Node **tail, Node *stmt) {
+    (*tail)->next = stmt;
     *tail = stmt;
+    stmt->next = NULL;
 }
 
 static Node *declaration() {
     Node *decl;
     if (match(TOKEN_VAR)) {
         decl = varDeclaration();
+    } else if (match(TOKEN_FN)) {
+        decl = fnDeclaration();
     } else {
         decl = stmt();
     }
@@ -196,6 +204,37 @@ static Node *declaration() {
         synchronize();
     }
     return decl;
+}
+
+static Node *fnDeclaration() {
+    consume(TOKEN_IDENTIFIER, "Expect an identifier after 'fn'.");
+    Token *fnName = parser.previous;
+    Node *params = parameters();
+    consume(TOKEN_LEFT_BRACE, "Expect a '{' after params list");
+    Node *body = parseBlock();
+    return NEW_FN_DECL(fnName, params, body);
+}
+
+static Node *parameters() {
+    consume(TOKEN_LEFT_PAREN, "Expect '(' after function name.");
+    if (match(TOKEN_RIGHT_PAREN)) {
+        return NULL;
+    }
+    Node *head = NULL;
+    Node *tail = head;
+    do {
+        consume(TOKEN_IDENTIFIER,
+                "Expect identfier inside function paramlist.");
+        Token *ident = parser.previous;
+        Node *param = NEW_PARAM(ident);
+        if (!tail) {
+            head = tail = param;
+        } else {
+            appendToNext(&tail, param);
+        }
+    } while (match(TOKEN_COMMA));
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after params list.");
+    return head;
 }
 
 static Node *varDeclaration() {
@@ -224,26 +263,27 @@ static Node *stmt() {
         return blockStmt();
     } else if (match(TOKEN_PRINT)) {
         return printStmt();
-    } else {
-        return expressionStmt();
+    } else if (match(TOKEN_RETURN)) {
+        return returnStmt();
     }
+    { return expressionStmt(); }
 }
 
 static Node *forStmt() {
     Token *token = parser.previous;
     consume(TOKEN_LEFT_PAREN, "Expect a '(' after 'for'.");
-    Node *init = parseForInit();
+    Node *init = forInit();
     consume(TOKEN_SEMICOLON, "Expect a ';'.");
-    Node *condition = parseForCondition();
+    Node *condition = forCondition();
     consume(TOKEN_SEMICOLON, "Expect a ';'.");
-    Node *increment = parseForIncrement();
+    Node *increment = forIncrement();
     consume(TOKEN_RIGHT_PAREN, "Expect a ')' after for clauses.");
     skipNewlines();
     Node *body = stmt();
     return NEW_FOR_STMT(token, init, condition, increment, body);
 }
 
-static Node *parseForInit() {
+static Node *forInit() {
     if (check(TOKEN_SEMICOLON)) {
         return NULL;
     } else if (match(TOKEN_VAR)) {
@@ -261,7 +301,7 @@ static Node *parseForInit() {
     }
 }
 
-static Node *parseForCondition() {
+static Node *forCondition() {
     if (check(TOKEN_SEMICOLON)) {
         return NULL;
     } else {
@@ -269,7 +309,7 @@ static Node *parseForCondition() {
     }
 }
 
-static Node *parseForIncrement() {
+static Node *forIncrement() {
     if (check(TOKEN_RIGHT_PAREN)) {
         return NULL;
     } else {
@@ -304,10 +344,10 @@ static Node *ifStmt() {
     consume(TOKEN_LEFT_PAREN, "Expect a '(' after 'if'.");
     Node *condition = expression();
     consume(TOKEN_RIGHT_PAREN, "Expect a ')' after the if condition.");
-    Node *thenBranch = parseBranch();
+    Node *thenBranch = branch();
     Node *elseBranch = NULL;
     if (match(TOKEN_ELSE)) {
-        elseBranch = parseBranch();
+        elseBranch = branch();
     }
 
     if (isLastChainBlock(thenBranch, elseBranch)) {
@@ -317,7 +357,7 @@ static Node *ifStmt() {
     return NEW_IF_STMT(token, condition, thenBranch, elseBranch);
 }
 
-static Node *parseBranch() {
+static Node *branch() {
     skipNewlines();
     if (match(TOKEN_LEFT_BRACE)) {
         return chainBlockStmt();
@@ -351,7 +391,7 @@ static Node *parseBlock() {
     while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
         skipNewlines();
         Node *decl = declaration();
-        appendToStmts(&tail, decl);
+        appendToNext(&tail, decl);
     }
 
     consume(TOKEN_RIGHT_BRACE, "Expect '}' at the end of a block statement");
@@ -364,6 +404,16 @@ static Node *printStmt() {
     Node *express = expression();
     expectStmtEnd("Expect a newline character after a print statement");
     return NEW_PRINT_STMT(token, express);
+}
+
+static Node *returnStmt() {
+    Token *token = parser.previous;
+    Node *returnVal = NULL;
+    if (!check(TOKEN_NEWLINE)) {
+        returnVal = expression();
+    }
+    expectStmtEnd("Expect a newline character after a return statement.");
+    return NEW_RETURN_STMT(token, returnVal);
 }
 
 static Node *expressionStmt() {
@@ -381,6 +431,29 @@ static void expectStmtEnd(const char *msg) {
 
 static Node *expression() {
     return parsePrecedence(PREC_ASSIGNMENT);
+}
+
+static Node *call(Node *lhs) {
+    Token *token = parser.previous;
+    Node *args = arguments();
+    return NEW_CALL(token, lhs, args);
+}
+
+static Node *arguments() {
+    Node *head = NULL;
+    Node *tail = head;
+    if (!check(TOKEN_RIGHT_PAREN)) {
+        do {
+            Node *arg = expression();
+            if (!tail) {
+                head = tail = arg;
+            } else {
+                appendToNext(&tail, arg);
+            }
+        } while (match(TOKEN_COMMA));
+    }
+    consume(TOKEN_RIGHT_PAREN, "Expect a ')' after function arguments");
+    return head;
 }
 
 static Node *grouping() {
@@ -433,14 +506,13 @@ static Node *variable() {
 
 static Node *stringTemplate() {
     Node *head = NEW_TEMPLATE_HEAD(parser.previous);
-    Node *prev = head;
+    Node *tail = head;
 
     while (parser.previous->type != TOKEN_AFTER_TEMPLATE) {
         Node *express = expression();
         Node *span = NEW_TEMPLATE_SPAN(parser.current, express);
-        prev->span = span;
-        prev = span;
-        head->numSpans++;
+        appendToNext(&tail, span);
+        head->count++;
         advance();
     }
 

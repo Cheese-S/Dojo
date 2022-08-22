@@ -10,14 +10,21 @@
 #define STACK_MAX (UINT8_COUNT * 64)
 
 typedef struct {
+    ObjFn *fn;
+    uint8_t *ip;
+    Value *slots;
+} CallFrame;
+
+typedef struct {
+    CallFrame frames[FRAME_MAX];
     Value stack[STACK_MAX];
     Value *stackTop;
     Obj *objs;
-    uint8_t *ip;
     Hashmap stringLiterals;
     Hashmap globals;
-    int count;
     bool isREPL;
+    int frameCount;
+    int count;
 } VM;
 
 typedef enum {

@@ -5,15 +5,18 @@
 #include "common.h"
 #include "hashmap.h"
 #include "node.h"
+#include "object.h"
 
 typedef struct {
-    Token *name;
     int depth;
+    int length;
+    const char *name;
 } Local;
 
 typedef struct {
-    Local locals[UINT8_COUNT];
     int count;
+    int scopeDepth;
+    Local locals[UINT8_COUNT];
 } LocalState;
 
 typedef struct {
@@ -23,22 +26,21 @@ typedef struct {
     int surrondingLoopScopeDepth;
 } LoopState;
 
-typedef struct {
-    int depth;
-} Scope;
+typedef enum { FN_SCRPIT, FN_FN } FnType;
 
-typedef struct {
-    Chunk *compilingChunk;
-    Node *script;
-    Node *currentCompiling;
-    Scope scope;
-    bool hadError;
+typedef struct Compiler {
+    FnType type;
+    ObjFn *fn;
+    Node *stmts;
+    Node *currentNode;
     LocalState localState;
+    LoopState loopState;
+    struct Compiler *enclosing;
     Hashmap stringConstants;
 } Compiler;
 
-void initCompiler(Chunk *chunk);
-void terminateCompiler();
-bool compile(const char *source, Chunk *chunk);
+void initCompiler(Compiler *compiler, FnType type);
+ObjFn *terminateCompiler(Compiler *compiler);
+ObjFn *compile(const char *source);
 
 #endif

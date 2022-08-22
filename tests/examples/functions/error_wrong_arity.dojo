@@ -1,0 +1,5 @@
+// It is an error to call a function with mismatched arity
+fn error() {
+}
+
+error(1)

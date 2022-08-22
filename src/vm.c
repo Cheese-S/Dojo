@@ -5,38 +5,45 @@
 #include "error.h"
 #include "hashmap.h"
 #include "object.h"
+#include "scanner.h"
 #include "value.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 static void terminateVM();
 
 static InterpreterResult run();
 
 static Value makeStrTemplate(int numSpans);
+static bool call(Value callee, int argCount);
+static bool callFn(ObjFn *fn, int argCount);
+static bool callNativeFn(ObjNativeFn *fn, int argCount);
+static void defineNativeFn(const char *name, NativeFn fn);
 
 static bool isFalsey();
 static int currentOpLine();
+static CallFrame *lastCallFrame();
 static void resetStack();
 static void push(Value value);
 static Value pop();
 static Value peek(int depth);
 
+static Value clockNative(int argCount, Value *args);
+
 VM vm;
-Chunk compilingChunk;
 
 InterpreterResult interpret(const char *source) {
-    initChunk(&compilingChunk);
-    if (compile(source, &compilingChunk)) {
-        freeChunk(&compilingChunk);
+    ObjFn *fn = compile(source);
+    if (!fn) {
+        // TODO: free all the resources
         return INTERPRET_COMPILE_ERROR;
     }
-    vm.ip = compilingChunk.codes;
+    push(OBJ_VAL(fn));
+    callFn(fn, 0);
     InterpreterResult res = run();
-    freeChunk(&compilingChunk);
     return res;
-    // terminateCompiler();
     // terminateVM();
 }
 
@@ -44,6 +51,7 @@ void initVM(bool isREPL) {
     resetStack();
     initMap(&vm.stringLiterals);
     initMap(&vm.globals);
+    defineNativeFn("clock", clockNative);
     vm.objs = NULL;
     vm.isREPL = isREPL;
 }
@@ -52,12 +60,17 @@ static void terminateVM() {
     freeObjs(vm.objs);
     freeMap(&vm.stringLiterals);
     freeMap(&vm.globals);
+    terminateScanner();
 }
 
 static InterpreterResult run() {
-#define READ_BYTE() (*vm.ip++)
-#define READ_CONSTANT() (getConstantAtIndex(&compilingChunk, READ_BYTE()))
-#define READ_SHORT() (vm.ip += 2, (uint16_t)((vm.ip[-2] << 8) | vm.ip[-1]))
+    CallFrame *frame = &vm.frames[vm.frameCount - 1];
+    register uint8_t *ip = frame->ip;
+#define LOAD_IP_REGISTER ip = frame->ip
+#define SAVE_IP_REGISTER frame->ip = ip
+#define READ_BYTE() (*ip++)
+#define READ_CONSTANT() (getConstantAtIndex(&frame->fn->chunk, READ_BYTE()))
+#define READ_SHORT() (ip += 2, (uint16_t)((ip[-2] << 8) | ip[-1]))
 #define READ_STRING() (AS_STRING(READ_CONSTANT()))
 #define ARITHEMETIC_BINARY_OP(valueType, op)                                   \
     do {                                                                       \
@@ -67,10 +80,22 @@ static InterpreterResult run() {
     } while (false)
 
     for (;;) {
-        // disassembleInstruction(&compilingChunk, vm.ip -
-        // compilingChunk.codes);
+        // disassembleInstruction(&frame->fn->chunk,
+        //                        (int)(ip - frame->fn->chunk.codes));
         uint8_t instruction = READ_BYTE();
         switch (instruction) {
+        case OP_CALL: {
+            int argCount = READ_BYTE();
+            SAVE_IP_REGISTER;
+            if (!call(peek(argCount), argCount)) {
+                runtimeError("Can only call functions and methods");
+                return INTERPRET_RUNTIME_ERROR;
+            }
+
+            frame = &vm.frames[vm.frameCount - 1];
+            LOAD_IP_REGISTER;
+            break;
+        }
         case OP_DEFINE_GLOBAL: {
             ObjString *name = READ_STRING();
             mapPut(&vm.globals, name, peek(0));
@@ -81,8 +106,9 @@ static InterpreterResult run() {
             ObjString *name = READ_STRING();
             Value val;
             if (!mapGet(&vm.globals, name, &val)) {
-                runtimeError(currentOpLine(), "Undefined Variable '%.*s'",
-                             name->length, name->str);
+                SAVE_IP_REGISTER;
+                runtimeError("Undefined Variable '%.*s'", name->length,
+                             name->str);
                 return INTERPRET_RUNTIME_ERROR;
             }
             push(val);
@@ -92,43 +118,44 @@ static InterpreterResult run() {
             ObjString *name = READ_STRING();
             if (mapPut(&vm.globals, name, peek(0))) {
                 mapDelete(&vm.globals, name);
-                runtimeError(currentOpLine(), "Undefined Variable '%.*s'",
-                             name->length, name->str);
+                SAVE_IP_REGISTER;
+                runtimeError("Undefined Variable '%.*s'", name->length,
+                             name->str);
                 return INTERPRET_RUNTIME_ERROR;
             }
             break;
         }
         case OP_GET_LOCAL: {
-            int pos = READ_BYTE();
-            push(vm.stack[pos]);
+            int slot = READ_BYTE();
+            push(frame->slots[slot]);
             break;
         }
         case OP_SET_LOCAL: {
-            int pos = READ_BYTE();
-            vm.stack[pos] = peek(0);
+            int slot = READ_BYTE();
+            frame->slots[slot] = peek(0);
             break;
         }
         case OP_LOOP: {
             uint16_t jump = READ_SHORT();
-            vm.ip -= jump;
+            ip -= jump;
             break;
         }
         case OP_JUMP: {
             uint16_t jump = READ_SHORT();
-            vm.ip += jump;
+            ip += jump;
             break;
         }
         case OP_JUMP_IF_TRUE: {
             uint16_t jump = READ_SHORT();
             if (!isFalsey(peek(0))) {
-                vm.ip += jump;
+                ip += jump;
             }
             break;
         }
         case OP_JUMP_IF_FALSE: {
             uint16_t jump = READ_SHORT();
             if (isFalsey(peek(0))) {
-                vm.ip += jump;
+                ip += jump;
             }
             break;
         }
@@ -214,9 +241,20 @@ static InterpreterResult run() {
         case OP_FALSE:
             push(FALSE_VAL);
             break;
-        case OP_RETURN:
-            goto end;
+        case OP_RETURN: {
+            Value result = pop();
+            vm.frameCount--;
+            if (vm.frameCount == 0) {
+                pop();
+                return INTERPRET_OK;
+            }
+
+            vm.stackTop = frame->slots;
+            push(result);
+            frame = &vm.frames[vm.frameCount - 1];
+            LOAD_IP_REGISTER;
             break;
+        }
         case OP_POP:
             pop();
             break;
@@ -229,13 +267,72 @@ static InterpreterResult run() {
         }
         }
     }
-end:
-    return INTERPRET_OK;
 #undef ARITHEMETIC_BINARY_OP
 #undef READ_STRING
 #undef READ_SHORT
 #undef READ_CONSTANT
 #undef READ_BYTE
+#undef SAVE_IP_REGISTER
+#undef LOAD_IP_REGISTER
+}
+
+static bool call(Value callee, int argCount) {
+    if (IS_OBJ(callee)) {
+        switch (OBJ_TYPE(callee)) {
+        case OBJ_FN:
+            return callFn(AS_FN(callee), argCount);
+        case OBJ_NATIVE_FN: {
+            return callNativeFn(AS_NATIVE_FN(callee), argCount);
+        }
+        default:
+            break;
+        }
+    }
+    runtimeError("Can only call functions and methods");
+    return false;
+}
+
+static bool callFn(ObjFn *fn, int argCount) {
+    if (argCount != fn->arity) {
+        runtimeError("Expected %d arguments but got %d", fn->arity, argCount);
+        return false;
+    }
+
+    if (vm.frameCount == FRAME_MAX) {
+        runtimeError("Stack overflow");
+        return false;
+    }
+
+    CallFrame *frame = &vm.frames[vm.frameCount++];
+    frame->fn = fn;
+    frame->ip = fn->chunk.codes;
+    frame->slots = vm.stackTop - argCount - 1;
+    return true;
+}
+
+static bool callNativeFn(ObjNativeFn *fn, int argCount) {
+    if (argCount != fn->arity) {
+        runtimeError("Expected %d arguments but got %d", fn->arity, argCount);
+        return false;
+    }
+
+    if (vm.frameCount == FRAME_MAX) {
+        runtimeError("Stack overflow");
+        return false;
+    }
+
+    Value result = fn->fn(argCount, vm.stackTop - argCount);
+    vm.stackTop -= argCount + 1;
+    push(result);
+    return true;
+}
+
+static void defineNativeFn(const char *name, NativeFn native) {
+    push(newObjStringInVal(name, (int)strlen(name)));
+    push(OBJ_VAL(newObjNativeFn(native)));
+    mapPut(&vm.globals, AS_STRING(vm.stack[0]), vm.stack[1]);
+    pop();
+    pop();
 }
 
 static bool isFalsey(Value val) {
@@ -244,8 +341,13 @@ static bool isFalsey(Value val) {
 }
 
 static int currentOpLine() {
-    size_t instruction = vm.ip - compilingChunk.codes - 1;
-    return compilingChunk.lines[instruction];
+    CallFrame *frame = lastCallFrame();
+    size_t instruction = frame->ip - frame->fn->chunk.codes - 1;
+    return frame->fn->chunk.lines[instruction];
+}
+
+static CallFrame *lastCallFrame() {
+    return &vm.frames[vm.frameCount - 1];
 }
 
 static Value makeStrTemplate(int numSpans) {
@@ -270,7 +372,7 @@ static Value makeStrTemplate(int numSpans) {
 
 static void resetStack() {
     vm.stackTop = vm.stack;
-    vm.count = 0;
+    vm.frameCount = 0;
 }
 
 static void push(Value value) {
@@ -285,4 +387,8 @@ static Value pop() {
 
 static Value peek(int depth) {
     return *(vm.stackTop - depth - 1);
+}
+
+static Value clockNative(int argCount, Value *args) {
+    return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
 }

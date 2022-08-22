@@ -13,11 +13,12 @@
 #include <stdint.h>
 #include <string.h>
 
-#define LOCAL_STATE(compiler) (compiler.localState)
-#define LOCAL_COUNT(compiler) (compiler.localState.count)
-#define LOCAL_ARR(compiler) (compiler.localState.locals)
 #define NOT_INITIALIZED -1
 #define JUMP_PLACEHOLDER 0xff
+
+static void initLoopState(LoopState *state);
+static void initLocalState(LocalState *state);
+static void claimFirstLocal(LocalState *state);
 
 static Chunk *currentChunk();
 
@@ -25,6 +26,8 @@ static void compileStmts(Node *node);
 static void compileNode(Node *node);
 static void freeStmts(Node *AST);
 static void freeNode(Node *node);
+static void compileVarDeclValue(Node *operand);
+static void compileFn(Node *fn);
 
 static bool isGlobalScope();
 static int currentScopeDepth();
@@ -36,13 +39,13 @@ static void beginLoop();
 static void endLoop();
 
 static void discardHigherDepthLocals();
-static void compileVarDeclValue(Node *operand);
 static void defineGlobal(Token *name);
 static void declareLocal(Token *name);
 static void defineLatestLocal();
+static void pushNewLocal(Token *token);
 static int resolveLocal(LocalState *state, Token *name);
-static bool isIdentifiersEqual(Token *ident1, Token *ident2);
-static void pushNewLocal(Token *name);
+static bool isIdentifiersEqual(const char *str1, int len1, const char *str2,
+                               int len2);
 static bool isAssignable(Node *lhs);
 
 static void emitConstant(Value value);
@@ -55,55 +58,82 @@ static void emitLoop(int loopStart);
 static void patchJump(int offset);
 static void patchBreaks();
 static bool isUnpatchedBreak(uint8_t *code, int offset);
-static void emitBytes(uint8_t byte1, uint8_t byte2);
 static void emitBinaryOp(TokenType op);
+static void emitImplicitReturn();
+static void emitBytes(uint8_t byte1, uint8_t byte2);
 static void emitByte(uint8_t byte);
 
 static void compilerError(Token *token, const char *msg);
 static void compilerInternalError(const char *msg);
+static LocalState *currentLocalState();
+static LoopState *currentLoopState();
 
-Compiler compiler;
+Compiler *current;
+static bool compilerHadError;
 
-static LoopState loopState = {.innermostLoopStart = NOT_INITIALIZED,
-                              .innermostLoopScopeDepth = NOT_INITIALIZED,
-                              .surrondingLoopStart = NOT_INITIALIZED,
-                              .surrondingLoopScopeDepth = NOT_INITIALIZED};
-
-void initCompiler(Chunk *chunk) {
-    compiler.compilingChunk = chunk;
-    compiler.hadError = false;
-    compiler.scope.depth = 0;
-    compiler.localState.count = 0;
-    initMap(&compiler.stringConstants);
+void initCompiler(Compiler *compiler, FnType type) {
+    compiler->enclosing = current;
+    compiler->type = type;
+    compiler->fn = NULL;
+    compiler->stmts = NULL;
+    initLoopState(&compiler->loopState);
+    initLocalState(&compiler->localState);
+    initMap(&compiler->stringConstants);
+    compiler->fn = newObjFn();
+    current = compiler;
+    claimFirstLocal(currentLocalState());
 }
 
-void terminateCompiler() {
-    freeStmts(compiler.script);
-    freeMap(&compiler.stringConstants);
-    terminateParser();
+static void initLoopState(LoopState *state) {
+    state->innermostLoopStart = NOT_INITIALIZED;
+    state->surrondingLoopStart = NOT_INITIALIZED;
+    state->innermostLoopScopeDepth = NOT_INITIALIZED;
+    state->surrondingLoopScopeDepth = NOT_INITIALIZED;
+}
+
+static void initLocalState(LocalState *state) {
+    state->count = 0;
+    state->scopeDepth = 0;
+}
+
+static void claimFirstLocal(LocalState *state) {
+
+    Local *local = &state->locals[state->count++];
+    local->depth = 0;
+    local->name = "";
+    local->length = 0;
+}
+
+ObjFn *terminateCompiler(Compiler *compiler) {
+    emitImplicitReturn();
+    current = compiler->enclosing;
+    freeStmts(compiler->stmts);
+    freeMap(&compiler->stringConstants);
+    return compiler->fn;
 }
 
 // TODO: ALLOW EMPTY FILE
 
-bool compile(const char *source, Chunk *chunk) {
+ObjFn *compile(const char *source) {
+    Compiler compiler;
     bool parserError = false;
     initParser(source);
-    initCompiler(chunk);
-    compiler.script = parse(&parserError);
+    initCompiler(&compiler, FN_SCRPIT);
+    current->stmts = parse(&parserError);
     if (parserError) {
-        return true;
+        terminateCompiler(&compiler);
+        return NULL;
     }
-    compileStmts(compiler.script);
-    // TODO: remove this hack
-    compiler.currentCompiling = compiler.script;
-    emitByte(OP_RETURN);
-    return compiler.hadError || parserError;
+    compileStmts(current->stmts);
+    emitImplicitReturn();
+    ObjFn *script = terminateCompiler(&compiler);
+    return compilerHadError ? NULL : script;
 }
 
 static void compileStmts(Node *script) {
     Node *current = script;
     while (current) {
-        Node *next = current->nextStmt;
+        Node *next = current->next;
         compileNode(current);
         current = next;
     }
@@ -113,10 +143,26 @@ static void compileNode(Node *node) {
     if (node == NULL)
         return;
 
-    Node *prev = compiler.currentCompiling;
-    compiler.currentCompiling = node;
+    Node *prev = current->currentNode;
+    current->currentNode = node;
 
     switch (node->type) {
+    case ND_FN_DECL:
+        if (isGlobalScope()) {
+            compileFn(node);
+            defineGlobal(node->token);
+        } else {
+            // Recursive function "uses" itself before it is fully defined.
+            // So we have to allow this.
+            declareLocal(node->token);
+            defineLatestLocal();
+            compileFn(node);
+        }
+        break;
+    case ND_PARAM:
+        declareLocal(node->token);
+        defineLatestLocal();
+        return;
     case ND_VAR_DECL: {
         if (isGlobalScope()) {
             compileVarDeclValue(node->operand);
@@ -124,7 +170,7 @@ static void compileNode(Node *node) {
         } else {
             declareLocal(node->token);
             compileVarDeclValue(node->operand);
-            defineLatestLocal(node->token);
+            defineLatestLocal();
         }
         break;
     }
@@ -136,6 +182,7 @@ static void compileNode(Node *node) {
         compileNode(node->init);
         beginLoop();
         int jumpToEnd = NOT_INITIALIZED;
+        LoopState *state = currentLoopState();
         if (node->operand) {
             compileNode(node->operand);
             jumpToEnd = emitJump(OP_JUMP_IF_FALSE);
@@ -146,13 +193,13 @@ static void compileNode(Node *node) {
             int incrementStart = currentChunk()->count;
             compileNode(node->increment);
             emitByte(OP_POP);
-            emitLoop(loopState.innermostLoopStart);
-            loopState.innermostLoopStart = incrementStart;
+            emitLoop(state->innermostLoopStart);
+            state->innermostLoopStart = incrementStart;
             patchJump(jumpToBody);
         }
         compileNode(node->thenBranch);
 
-        emitLoop(loopState.innermostLoopStart);
+        emitLoop(state->innermostLoopStart);
         if (jumpToEnd != NOT_INITIALIZED) {
             patchJump(jumpToEnd);
             emitByte(OP_POP);
@@ -182,8 +229,8 @@ static void compileNode(Node *node) {
                 node->token,
                 "Cannot use continue statement outside a loop statement. ");
         }
-        discardHigherDepthLocals(loopState.innermostLoopScopeDepth);
-        emitLoop(loopState.innermostLoopStart);
+        discardHigherDepthLocals(currentLoopState()->innermostLoopScopeDepth);
+        emitLoop(currentLoopState()->innermostLoopStart);
         break;
     }
     case ND_BREAK: {
@@ -192,7 +239,7 @@ static void compileNode(Node *node) {
                 node->token,
                 "Cannot use break statement outside a break statement. ");
         }
-        discardHigherDepthLocals(loopState.innermostLoopScopeDepth);
+        discardHigherDepthLocals(currentLoopState()->innermostLoopScopeDepth);
         emitJump(OP_JUMP);
         break;
     }
@@ -223,9 +270,38 @@ static void compileNode(Node *node) {
         emitByte(OP_PRINT);
         break;
     }
+    case ND_RETURN: {
+        if (current->type == FN_SCRPIT) {
+            compilerError(node->token, "Cannot return from top-level code.");
+        }
+        if (node->operand) {
+            compileNode(node->operand);
+        } else {
+            emitByte(OP_NIL);
+        }
+        emitByte(OP_RETURN);
+        break;
+    }
     case ND_EXPRESSION: {
         compileNode(node->operand);
         emitByte(OP_POP);
+        break;
+    }
+    case ND_CALL: {
+        uint8_t argCount = 0;
+        Node *args = node->operand;
+        compileNode(node->lhs);
+        while (args) {
+            argCount++;
+            Node *next = args->next;
+            compileNode(args);
+            if (argCount == 255) {
+                compilerError(node->lhs->token,
+                              "Can't have more than 255 arguments");
+            }
+            args = next;
+        }
+        emitBytes(OP_CALL, argCount);
         break;
     }
     case ND_ASSIGNMENT: {
@@ -234,7 +310,7 @@ static void compileNode(Node *node) {
         }
         compileNode(node->rhs);
 
-        int vmStackPos = resolveLocal(&LOCAL_STATE(compiler), node->lhs->token);
+        int vmStackPos = resolveLocal(currentLocalState(), node->lhs->token);
         if (vmStackPos != -1) {
             emitBytes(OP_SET_LOCAL, vmStackPos);
         } else {
@@ -274,7 +350,7 @@ static void compileNode(Node *node) {
         break;
     }
     case ND_VAR: {
-        int vmStackPos = resolveLocal(&LOCAL_STATE(compiler), node->token);
+        int vmStackPos = resolveLocal(currentLocalState(), node->token);
         if (vmStackPos != -1) {
             emitBytes(OP_GET_LOCAL, vmStackPos);
         } else {
@@ -292,17 +368,17 @@ static void compileNode(Node *node) {
             newObjStringInVal(node->token->start + 1, node->token->length - 2));
         break;
     case ND_TEMPLATE_HEAD:
-        compileNode(node->span);
+        compileNode(node->next);
         emitConstant(
             newObjStringInVal(node->token->start + 1, node->token->length - 1));
-        emitBytes(OP_TEMPLATE, (uint8_t)(node->numSpans));
+        emitBytes(OP_TEMPLATE, (uint8_t)(node->count));
         break;
     case ND_TEMPLATE_SPAN: {
         int len = node->token->type == TOKEN_AFTER_TEMPLATE
                       ? node->token->length - 1
                       : node->token->length;
-        if (node->span != NULL) {
-            compileNode(node->span);
+        if (node->next != NULL) {
+            compileNode(node->next);
         }
         emitConstant(newObjStringInVal(node->token->start, len));
         compileNode(node->operand);
@@ -324,50 +400,73 @@ static void compileNode(Node *node) {
         break;
     }
 
-    compiler.currentCompiling = prev;
+    current->currentNode = prev;
+}
+
+static void compileFn(Node *fn) {
+    Compiler fnCompiler;
+    initCompiler(&fnCompiler, FN_FN);
+    beginScope();
+    current->fn->name = newObjString(fn->token->start, fn->token->length);
+    Node *params = fn->operand;
+    while (params) {
+        current->fn->arity++;
+        compileNode(params);
+        params = params->next;
+    }
+    compileNode(fn->thenBranch);
+    ObjFn *resFn = terminateCompiler(&fnCompiler);
+    emitConstant(OBJ_VAL(resFn));
+}
+
+static void compileVarDeclValue(Node *operand) {
+    if (operand) {
+        compileNode(operand);
+    } else {
+        emitByte(OP_NIL);
+    }
+}
+
+static void beginLoop() {
+    LoopState *state = currentLoopState();
+    state->surrondingLoopScopeDepth = state->innermostLoopScopeDepth;
+    state->surrondingLoopStart = state->innermostLoopStart;
+    state->innermostLoopStart = currentChunk()->count;
+    state->innermostLoopScopeDepth = currentScopeDepth();
+}
+
+static void endLoop() {
+    LoopState *state = currentLoopState();
+    state->innermostLoopStart = state->surrondingLoopStart;
+    state->innermostLoopScopeDepth = state->surrondingLoopScopeDepth;
 }
 
 static bool isGlobalScope() {
-    return !compiler.scope.depth;
-}
-
-static int currentScopeDepth() {
-    return compiler.scope.depth;
+    return !currentScopeDepth();
 }
 
 static void beginScope() {
-    compiler.scope.depth++;
+    currentLocalState()->scopeDepth++;
 }
 
 static void endScope() {
-    compiler.scope.depth--;
+    currentLocalState()->scopeDepth--;
     discardHigherDepthLocals(currentScopeDepth());
 }
 
 static void discardHigherDepthLocals(int depth) {
     int discarded = 0;
-    while (LOCAL_COUNT(compiler) > 0 &&
-           LOCAL_ARR(compiler)[LOCAL_COUNT(compiler) - 1].depth > depth) {
+    LocalState *local = currentLocalState();
+    while (local->count > 0 && local->locals[local->count - 1].depth > depth) {
         discarded++;
-        LOCAL_COUNT(compiler)--;
+        local->count--;
     }
     emitBytes(OP_POPN, discarded);
 };
 
-static void beginLoop() {
-    loopState.surrondingLoopScopeDepth = loopState.innermostLoopScopeDepth;
-    loopState.surrondingLoopStart = loopState.innermostLoopStart;
-    loopState.innermostLoopStart = currentChunk()->count;
-    loopState.innermostLoopScopeDepth = currentScopeDepth();
-}
-
-static void endLoop() {
-    loopState.innermostLoopStart = loopState.surrondingLoopStart;
-    loopState.innermostLoopScopeDepth = loopState.surrondingLoopScopeDepth;
-}
-
 static bool isInLoop() {
-    return loopState.innermostLoopStart != NOT_INITIALIZED;
+    LoopState *state = currentLoopState();
+    return state->innermostLoopStart != NOT_INITIALIZED;
 }
 
 static void defineGlobal(Token *name) {
@@ -377,47 +476,53 @@ static void defineGlobal(Token *name) {
 }
 
 static void defineLatestLocal() {
-    (&LOCAL_ARR(compiler)[LOCAL_COUNT(compiler) - 1])->depth =
-        currentScopeDepth();
+    LocalState *state = currentLocalState();
+    (&state->locals[state->count - 1])->depth = currentScopeDepth();
     return;
 }
 
-static void declareLocal(Token *name) {
-    if (compiler.localState.count == UINT8_COUNT) {
-        compilerError(name, "Too many local variables in scope.");
+static void declareLocal(Token *ident) {
+    if (current->localState.count == UINT8_COUNT) {
+        compilerError(ident, "Too many local variables in scope.");
         return;
     }
 
-    for (int i = LOCAL_COUNT(compiler) - 1; i >= 0; i--) {
-        Local *local = &LOCAL_ARR(compiler)[i];
+    LocalState *state = currentLocalState();
+
+    for (int i = state->count - 1; i >= 0; i--) {
+        Local *local = &state->locals[i];
         if (local->depth != NOT_INITIALIZED &&
             local->depth < currentScopeDepth()) {
             break;
         }
 
-        if (isIdentifiersEqual(local->name, name)) {
+        if (isIdentifiersEqual(local->name, local->length, ident->start,
+                               ident->length)) {
             compilerError(
-                name,
+                ident,
                 "Already a varaible with the same name exists in this scope");
         }
     }
 
-    pushNewLocal(name);
+    pushNewLocal(ident);
 }
 
-static void pushNewLocal(Token *name) {
-    Local *local = &LOCAL_ARR(compiler)[LOCAL_COUNT(compiler)++];
-    local->name = name;
+static void pushNewLocal(Token *ident) {
+    LocalState *state = currentLocalState();
+    Local *local = &state->locals[state->count++];
+    local->name = ident->start;
+    local->length = ident->length;
     local->depth = NOT_INITIALIZED;
 }
 
-static int resolveLocal(LocalState *state, Token *name) {
+static int resolveLocal(LocalState *state, Token *ident) {
     for (int i = state->count - 1; i >= 0; i--) {
         Local *local = &state->locals[i];
-        if (isIdentifiersEqual(name, local->name)) {
+        if (isIdentifiersEqual(local->name, local->length, ident->start,
+                               ident->length)) {
             if (local->depth == NOT_INITIALIZED) {
                 compilerError(
-                    name,
+                    ident,
                     "Cannot reference a local variable in its own initializer");
             }
             return i;
@@ -426,19 +531,12 @@ static int resolveLocal(LocalState *state, Token *name) {
     return -1;
 }
 
-static bool isIdentifiersEqual(Token *ident1, Token *ident2) {
-    if (ident1->length != ident2->length) {
+static bool isIdentifiersEqual(const char *str1, int len1, const char *str2,
+                               int len2) {
+    if (len1 != len2) {
         return false;
     }
-    return memcmp(ident1->start, ident2->start, ident1->length) == 0;
-}
-
-static void compileVarDeclValue(Node *operand) {
-    if (operand) {
-        compileNode(operand);
-    } else {
-        emitByte(OP_NIL);
-    }
+    return memcmp(str1, str2, len1) == 0;
 }
 
 static bool isAssignable(Node *lhs) {
@@ -458,12 +556,12 @@ static uint8_t pushIdentifier(Token *name) {
         return (uint8_t)AS_NUMBER(idx);
     }
     idx = (uint8_t)addConstantToChunk(currentChunk(), OBJ_VAL(identifier));
-    mapPut(&compiler.stringConstants, identifier, NUMBER_VAL((double)idx));
+    mapPut(&current->stringConstants, identifier, NUMBER_VAL((double)idx));
     return (uint8_t)idx;
 }
 
 static bool findIdentifierConstantIdx(ObjString *identifier, Value *receiver) {
-    if (mapGet(&compiler.stringConstants, identifier, receiver)) {
+    if (mapGet(&current->stringConstants, identifier, receiver)) {
         return true;
     }
     return false;
@@ -531,7 +629,7 @@ static int emitJump(uint8_t jumpInstruction) {
 
 static void patchJump(int offset) {
     if (offset > UINT16_MAX) {
-        compilerError(compiler.currentCompiling->token,
+        compilerError(current->currentNode->token,
                       "Exceeded the maximum allowed jump distance");
         return;
     }
@@ -543,8 +641,9 @@ static void patchJump(int offset) {
 
 static void patchBreaks() {
     Chunk *chunk = currentChunk();
+    LoopState *state = currentLoopState();
     int loopEnd = chunk->count;
-    for (int i = loopState.innermostLoopStart; i < loopEnd - 2; i++) {
+    for (int i = state->innermostLoopStart; i < loopEnd - 2; i++) {
         if (isUnpatchedBreak(chunk->codes, i)) {
             patchJump(i + 1);
             i = i + 2;
@@ -561,11 +660,16 @@ static void emitLoop(int loopStart) {
     emitByte(OP_LOOP);
     int offset = currentChunk()->count - loopStart + 2;
     if (offset > UINT16_MAX) {
-        compilerError(compiler.currentCompiling->token, "Loop body too large.");
+        compilerError(current->currentNode->token, "Loop body too large.");
         return;
     }
     emitByte((offset >> 8) & 0xff);
     emitByte(offset & 0xff);
+}
+
+static void emitImplicitReturn() {
+    addCodeToChunk(currentChunk(), OP_NIL, -1);
+    addCodeToChunk(currentChunk(), OP_RETURN, -1);
 }
 
 static void emitBytes(uint8_t byte1, uint8_t byte2) {
@@ -574,18 +678,13 @@ static void emitBytes(uint8_t byte1, uint8_t byte2) {
 }
 
 static void emitByte(uint8_t byte) {
-    addCodeToChunk(currentChunk(), byte,
-                   compiler.currentCompiling->token->line);
-}
-
-static Chunk *currentChunk() {
-    return compiler.compilingChunk;
+    addCodeToChunk(currentChunk(), byte, current->currentNode->token->line);
 }
 
 static void freeStmts(Node *script) {
     Node *current = script;
     while (current) {
-        Node *next = current->nextStmt;
+        Node *next = current->next;
         freeNode(current);
         current = next;
     }
@@ -596,6 +695,17 @@ static void freeNode(Node *node) {
         return;
 
     switch (node->type) {
+    case ND_CALL: {
+        freeNode(node->lhs);
+        Node *current = node->operand;
+        while (current) {
+            Node *next = current->next;
+            freeNode(current);
+            current = next;
+        }
+        FREE(Node, node);
+        return;
+    }
     case ND_FOR:
         freeNode(node->init);
         freeNode(node->operand);
@@ -603,6 +713,7 @@ static void freeNode(Node *node) {
         freeNode(node->thenBranch);
         FREE(Node, node);
         return;
+    case ND_FN_DECL:
     case ND_WHILE:
         freeNode(node->operand);
         freeNode(node->thenBranch);
@@ -615,10 +726,6 @@ static void freeNode(Node *node) {
         freeNode(node->operand);
         FREE(Node, node);
         return;
-    case ND_BLOCK:
-        freeStmts(node->operand);
-        FREE(Node, node);
-        return;
     case ND_ASSIGNMENT:
     case ND_AND:
     case ND_OR:
@@ -627,15 +734,18 @@ static void freeNode(Node *node) {
         freeNode(node->rhs);
         FREE(Node, node);
         return;
+    case ND_PARAM:
     case ND_TEMPLATE_HEAD:
-        freeNode(node->span);
+        freeNode(node->next);
         FREE(Node, node);
         return;
     case ND_TEMPLATE_SPAN:
-        freeNode(node->span);
+        freeNode(node->next);
         freeNode(node->operand);
         FREE(Node, node);
         return;
+    case ND_RETURN:
+    case ND_BLOCK:
     case ND_VAR_DECL:
     case ND_EXPRESSION:
     case ND_PRINT:
@@ -656,12 +766,28 @@ static void freeNode(Node *node) {
     }
 }
 
+static Chunk *currentChunk() {
+    return &current->fn->chunk;
+}
+
+static LocalState *currentLocalState() {
+    return &current->localState;
+}
+
+static LoopState *currentLoopState() {
+    return &current->loopState;
+}
+
+static int currentScopeDepth() {
+    return current->localState.scopeDepth;
+}
+
 static void compilerError(Token *token, const char *msg) {
-    compiler.hadError = true;
+    compilerHadError = true;
     errorAtToken(token, msg);
 }
 
 static void compilerInternalError(const char *msg) {
-    compiler.hadError = true;
+    compilerHadError = true;
     internalError(msg);
 }

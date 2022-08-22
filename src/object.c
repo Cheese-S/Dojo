@@ -2,6 +2,7 @@
 #include "hashmap.h"
 #include "memory.h"
 #include "vm.h"
+#include <stdio.h>
 
 #define ALLOCATE_OBJ(type, objectType)                                         \
     (type *)allocateObj(sizeof(type), objectType)
@@ -32,23 +33,58 @@ void freeObjs(Obj *head) {
 
 static void freeObj(Obj *obj) {
     switch (obj->type) {
+    case OBJ_FN: {
+        ObjFn *fn = (ObjFn *)obj;
+        freeChunk(&fn->chunk);
+        GC_FREE(ObjFn, fn);
+        break;
+    }
     case OBJ_STRING: {
         ObjString *str = (ObjString *)obj;
         if (str->isUsingHeap) {
             FREE_ARRAY(char, (char *)str->str, str->length);
         }
         GC_FREE(ObjString, obj);
+        break;
+    }
+    case OBJ_NATIVE_FN: {
+        GC_FREE(ObjNativeFn, obj);
+        break;
     }
     }
 }
 
-void markUsingHeap(ObjString *str) {
-    str->isUsingHeap = true;
+void printObjToFile(FILE *f, Value obj) {
+    switch (OBJ_TYPE(obj)) {
+    case OBJ_STRING: {
+        ObjString *str = AS_STRING(obj);
+        fprintf(f, "%.*s", str->length, str->str);
+        return;
+    }
+    case OBJ_FN: {
+        ObjFn *fn = AS_FN(obj);
+        fprintf(f, "<fn %.*s>", fn->name->length, fn->name->str);
+        return;
+    }
+    case OBJ_NATIVE_FN: {
+        fprintf(f, "<native_fn>");
+        return;
+    }
+    }
 }
 
-bool isObjStrEqual(ObjString *a, ObjString *b) {
-    return a->length == b->length && a->hash == b->hash &&
-           memcmp(a->str, b->str, sizeof(char) * a->length);
+ObjFn *newObjFn() {
+    ObjFn *fn = ALLOCATE_OBJ(ObjFn, OBJ_FN);
+    fn->arity = 0;
+    fn->name = NULL;
+    initChunk(&fn->chunk);
+    return fn;
+}
+
+ObjNativeFn *newObjNativeFn(NativeFn fn) {
+    ObjNativeFn *native = ALLOCATE_OBJ(ObjNativeFn, OBJ_NATIVE_FN);
+    native->fn = fn;
+    return native;
 }
 
 Value newObjStringInVal(const char *str, int len) {
@@ -89,4 +125,13 @@ static void initObjString(ObjString *objstr, const char *str, int len) {
     objstr->length = len;
     objstr->str = str;
     objstr->isUsingHeap = false;
+}
+
+void markUsingHeap(ObjString *str) {
+    str->isUsingHeap = true;
+}
+
+bool isObjStrEqual(ObjString *a, ObjString *b) {
+    return a->length == b->length && a->hash == b->hash &&
+           memcmp(a->str, b->str, sizeof(char) * a->length);
 }

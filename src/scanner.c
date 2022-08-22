@@ -77,9 +77,6 @@ void initScanner(const char *source) {
 
 void terminateScanner() {
     freeTokens();
-    scanner.tail = scanner.sentinel;
-    scanner.tokenp = scanner.sentinel;
-    scanner.line = 1;
 }
 
 Token *nextToken() {

@@ -1,5 +1,6 @@
 #include "debug.h"
 #include "chunk.h"
+#include "object.h"
 #include <stdint.h>
 #include <stdio.h>
 
@@ -24,6 +25,21 @@ int disassembleInstruction(Chunk *chunk, int offset) {
     printLineInfo(chunk, offset);
     uint8_t instruction = chunk->codes[offset];
     switch (instruction) {
+    case OP_CLOSURE: {
+        offset++;
+        uint8_t constant = chunk->codes[offset++];
+        printf("%-16s %4d ", "OP_CLOSURE", constant);
+        printValue(chunk->constants.values[constant]);
+        printf("\n");
+        ObjFn *fn = AS_FN(chunk->constants.values[constant]);
+        for (int j = 0; j < fn->upvalueCount; j++) {
+            int isLocal = chunk->codes[offset++];
+            int index = chunk->codes[offset++];
+            printf("%04d      |                     %s %d\n", offset - 2,
+                   isLocal ? "local" : "upvalue", index);
+        }
+        return offset;
+    }
     case OP_CALL:
         return byteInstruction("OP_CALL", chunk, offset);
     case OP_DEFINE_GLOBAL:
@@ -36,6 +52,12 @@ int disassembleInstruction(Chunk *chunk, int offset) {
         return byteInstruction("OP_GET_LOCAL", chunk, offset);
     case OP_SET_LOCAL:
         return byteInstruction("OP_SET_LOCAL", chunk, offset);
+    case OP_GET_UPVALUE:
+        return byteInstruction("OP_GET_UPVALUE", chunk, offset);
+    case OP_SET_UPVALUE:
+        return byteInstruction("OP_SET_UPVALUE", chunk, offset);
+    case OP_CLOSE_UPVALUE:
+        return byteInstruction("OP_CLOSE_UPVALUE", chunk, offset);
     case OP_JUMP_IF_TRUE:
         return jumpInstruction("OP_JUMP_IF_TRUE", 1, chunk, offset);
     case OP_JUMP_IF_FALSE:

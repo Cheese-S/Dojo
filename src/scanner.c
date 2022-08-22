@@ -242,6 +242,7 @@ static Token *skipWhiteSpace() {
                 if (peek() == '\n') {
                     scanner.line++;
                     advance();
+                    return makeToken(TOKEN_NEWLINE);
                 }
             } else if (peekNext() == '*') {
                 advanceN(2);

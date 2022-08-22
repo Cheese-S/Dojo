@@ -385,16 +385,22 @@ static Node *blockStmt() {
 static Node *parseBlock() {
     Token *token = parser.previous;
     skipNewlines();
-    Node *tail = declaration();
-    Node *block = NEW_BLOCK_STMT(token, tail);
+    Node *head = NULL;
+    Node *tail = head;
 
     while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
         skipNewlines();
         Node *decl = declaration();
-        appendToNext(&tail, decl);
+        if (head) {
+            appendToNext(&tail, decl);
+        } else {
+            head = decl;
+            tail = head;
+        }
     }
 
     consume(TOKEN_RIGHT_BRACE, "Expect '}' at the end of a block statement");
+    Node *block = NEW_BLOCK_STMT(token, head);
     return block;
 }
 

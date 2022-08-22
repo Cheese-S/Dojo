@@ -50,7 +50,7 @@ void runtimeError(const char *format, ...) {
 static void printStackTrace() {
     for (int i = vm.frameCount - 1; i >= 0; i--) {
         CallFrame *frame = &vm.frames[i];
-        ObjFn *fn = frame->fn;
+        ObjFn *fn = frame->closure->fn;
         size_t instruction = frame->ip - fn->chunk.codes - 1;
         fprintf(stderr, "[Line %d] in ", fn->chunk.lines[instruction]);
         if (fn->name == NULL) {

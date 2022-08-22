@@ -10,7 +10,7 @@
 #define STACK_MAX (UINT8_COUNT * 64)
 
 typedef struct {
-    ObjFn *fn;
+    ObjClosure *closure;
     uint8_t *ip;
     Value *slots;
 } CallFrame;
@@ -22,6 +22,7 @@ typedef struct {
     Obj *objs;
     Hashmap stringLiterals;
     Hashmap globals;
+    ObjUpvalue *openUpvalues;
     bool isREPL;
     int frameCount;
     int count;

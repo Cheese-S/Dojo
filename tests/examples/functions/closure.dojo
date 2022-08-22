@@ -19,7 +19,7 @@ fn main() {
   }
 }
 
-main() 
-globalOne() 
-globalTwo() 
+main() // define two closures
+globalOne() // print out one
+globalTwo() // print out two
 

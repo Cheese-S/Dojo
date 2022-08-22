@@ -10,6 +10,7 @@
 typedef struct {
     int depth;
     int length;
+    bool isCaptured;
     const char *name;
 } Local;
 
@@ -18,6 +19,15 @@ typedef struct {
     int scopeDepth;
     Local locals[UINT8_COUNT];
 } LocalState;
+
+typedef struct {
+    uint8_t index;
+    bool isLocal;
+} Upvalue;
+
+typedef struct {
+    Upvalue upvalues[UINT8_COUNT];
+} UpvalueState;
 
 typedef struct {
     int innermostLoopStart;
@@ -33,6 +43,7 @@ typedef struct Compiler {
     ObjFn *fn;
     Node *stmts;
     Node *currentNode;
+    UpvalueState upvalueState;
     LocalState localState;
     LoopState loopState;
     struct Compiler *enclosing;

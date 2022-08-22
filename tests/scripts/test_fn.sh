@@ -8,6 +8,11 @@ assertFile "tests/examples/functions/fn.dojo" '11
 This is the name of the function <fn function>
 21'
 
+suite "Closure should get/set their corresponding upvalue"
+
+assertFile "tests/examples/functions/closure.dojo" 'one
+two'
+
 suite "Call a function with the wrong number of arguments should cause an error"
 
 assertFileError "tests/examples/functions/error_wrong_arity.dojo"

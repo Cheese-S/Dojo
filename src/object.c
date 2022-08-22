@@ -1,6 +1,7 @@
 #include "object.h"
 #include "hashmap.h"
 #include "memory.h"
+#include "value.h"
 #include "vm.h"
 #include <stdio.h>
 
@@ -33,10 +34,20 @@ void freeObjs(Obj *head) {
 
 static void freeObj(Obj *obj) {
     switch (obj->type) {
+    case OBJ_CLOSURE: {
+        ObjClosure *closure = (ObjClosure *)obj;
+        GC_FREE(ObjClosure, obj);
+        FREE_ARRAY(ObjUpvalue *, closure->upvalues, closure->upvalueCount);
+        break;
+    }
     case OBJ_FN: {
         ObjFn *fn = (ObjFn *)obj;
         freeChunk(&fn->chunk);
         GC_FREE(ObjFn, fn);
+        break;
+    }
+    case OBJ_NATIVE_FN: {
+        GC_FREE(ObjNativeFn, obj);
         break;
     }
     case OBJ_STRING: {
@@ -47,8 +58,8 @@ static void freeObj(Obj *obj) {
         GC_FREE(ObjString, obj);
         break;
     }
-    case OBJ_NATIVE_FN: {
-        GC_FREE(ObjNativeFn, obj);
+    case OBJ_UPVALUE: {
+        GC_FREE(ObjUpvalue, obj);
         break;
     }
     }
@@ -56,9 +67,9 @@ static void freeObj(Obj *obj) {
 
 void printObjToFile(FILE *f, Value obj) {
     switch (OBJ_TYPE(obj)) {
-    case OBJ_STRING: {
-        ObjString *str = AS_STRING(obj);
-        fprintf(f, "%.*s", str->length, str->str);
+    case OBJ_CLOSURE: {
+        ObjFn *fn = AS_CLOSURE(obj)->fn;
+        fprintf(f, "<fn %.*s>", fn->name->length, fn->name->str);
         return;
     }
     case OBJ_FN: {
@@ -70,12 +81,34 @@ void printObjToFile(FILE *f, Value obj) {
         fprintf(f, "<native_fn>");
         return;
     }
+    case OBJ_STRING: {
+        ObjString *str = AS_STRING(obj);
+        fprintf(f, "%.*s", str->length, str->str);
+        return;
     }
+    case OBJ_UPVALUE: {
+        fprintf(f, "upvalue");
+        return;
+    }
+    }
+}
+
+ObjClosure *newObjClosure(ObjFn *fn) {
+    ObjUpvalue **values = GC_ALLOCATE(ObjUpvalue *, fn->upvalueCount);
+    for (int i = 0; i < fn->upvalueCount; i++) {
+        values[i] = NULL;
+    }
+    ObjClosure *closure = ALLOCATE_OBJ(ObjClosure, OBJ_CLOSURE);
+    closure->upvalues = values;
+    closure->upvalueCount = fn->upvalueCount;
+    closure->fn = fn;
+    return closure;
 }
 
 ObjFn *newObjFn() {
     ObjFn *fn = ALLOCATE_OBJ(ObjFn, OBJ_FN);
     fn->arity = 0;
+    fn->upvalueCount = 0;
     fn->name = NULL;
     initChunk(&fn->chunk);
     return fn;
@@ -85,6 +118,14 @@ ObjNativeFn *newObjNativeFn(NativeFn fn) {
     ObjNativeFn *native = ALLOCATE_OBJ(ObjNativeFn, OBJ_NATIVE_FN);
     native->fn = fn;
     return native;
+}
+
+ObjUpvalue *newObjUpvalue(Value *slot) {
+    ObjUpvalue *upvalue = ALLOCATE_OBJ(ObjUpvalue, OBJ_UPVALUE);
+    upvalue->location = slot;
+    upvalue->next = NULL;
+    upvalue->closed = NIL_VAL;
+    return upvalue;
 }
 
 Value newObjStringInVal(const char *str, int len) {

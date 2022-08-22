@@ -103,6 +103,7 @@ END_TEST
 START_TEST(test_scanner_valid_skipwhitespace) {
     initScanner(
         "// this is a good test \n /* this \n should be skipped */ \t\r this ");
+    ck_assert(nextToken()->type == TOKEN_NEWLINE);
     ck_assert(nextToken()->type == TOKEN_THIS);
 }
 END_TEST

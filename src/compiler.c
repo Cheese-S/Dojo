@@ -20,34 +20,48 @@ static void initLoopState(LoopState *state);
 static void initLocalState(LocalState *state);
 static void claimFirstLocal(LocalState *state);
 
-static Chunk *currentChunk();
-
 static void compileStmts(Node *node);
 static void compileNode(Node *node);
 static void freeStmts(Node *AST);
 static void freeNode(Node *node);
 static void compileVarDeclValue(Node *operand);
 static void compileFn(Node *fn);
+static void compileParams(Node *params);
+static void compileFnBody(Node *body);
+static void emitUpvalues(UpvalueState *state, int count);
+
+/* ---------------------------------- SCOPE --------------------------------- */
 
 static bool isGlobalScope();
 static int currentScopeDepth();
 static void beginScope();
 static void endScope();
+static void popOrCloseDeeperLocals();
 
+/* ------------------------------- LOOP STATE ------------------------------- */
 static bool isInLoop();
 static void beginLoop();
 static void endLoop();
 
-static void discardHigherDepthLocals();
+/* -------------------------------- VARIABLES ------------------------------- */
+
 static void defineGlobal(Token *name);
+
+static int resolveLocal(LocalState *state, Token *ident);
 static void declareLocal(Token *name);
+static void errorIfDupLocal(LocalState *state, Token *ident);
 static void defineLatestLocal();
 static void pushNewLocal(Token *token);
-static int resolveLocal(LocalState *state, Token *name);
+
+static int resolveUpvalue(Compiler *compiler, Token *ident);
+static int pushNewUpvalue(Compiler *compiler, uint8_t index, bool isLocal);
+static int findDupUpvalue(UpvalueState *state, int count, uint8_t index,
+                          bool isLocal);
 static bool isIdentifiersEqual(const char *str1, int len1, const char *str2,
                                int len2);
 static bool isAssignable(Node *lhs);
 
+/* -------------------------------- EMIT OPS -------------------------------- */
 static void emitConstant(Value value);
 static uint8_t pushIdentifier(Token *name);
 static uint8_t pushConstant(Value constant);
@@ -63,10 +77,12 @@ static void emitImplicitReturn();
 static void emitBytes(uint8_t byte1, uint8_t byte2);
 static void emitByte(uint8_t byte);
 
+/* ----------------------------- COMPILER HELPER ---------------------------- */
 static void compilerError(Token *token, const char *msg);
 static void compilerInternalError(const char *msg);
 static LocalState *currentLocalState();
 static LoopState *currentLoopState();
+static Chunk *currentChunk();
 
 Compiler *current;
 static bool compilerHadError;
@@ -102,6 +118,7 @@ static void claimFirstLocal(LocalState *state) {
     local->depth = 0;
     local->name = "";
     local->length = 0;
+    local->isCaptured = false;
 }
 
 ObjFn *terminateCompiler(Compiler *compiler) {
@@ -229,7 +246,7 @@ static void compileNode(Node *node) {
                 node->token,
                 "Cannot use continue statement outside a loop statement. ");
         }
-        discardHigherDepthLocals(currentLoopState()->innermostLoopScopeDepth);
+        popOrCloseDeeperLocals(currentLoopState()->innermostLoopScopeDepth);
         emitLoop(currentLoopState()->innermostLoopStart);
         break;
     }
@@ -239,7 +256,7 @@ static void compileNode(Node *node) {
                 node->token,
                 "Cannot use break statement outside a break statement. ");
         }
-        discardHigherDepthLocals(currentLoopState()->innermostLoopScopeDepth);
+        popOrCloseDeeperLocals(currentLoopState()->innermostLoopScopeDepth);
         emitJump(OP_JUMP);
         break;
     }
@@ -310,9 +327,11 @@ static void compileNode(Node *node) {
         }
         compileNode(node->rhs);
 
-        int vmStackPos = resolveLocal(currentLocalState(), node->lhs->token);
-        if (vmStackPos != -1) {
-            emitBytes(OP_SET_LOCAL, vmStackPos);
+        int pos = resolveLocal(currentLocalState(), node->lhs->token);
+        if (pos != -1) {
+            emitBytes(OP_SET_LOCAL, pos);
+        } else if ((pos = resolveUpvalue(current, node->lhs->token)) != -1) {
+            emitBytes(OP_SET_UPVALUE, pos);
         } else {
             uint8_t index = pushIdentifier(node->lhs->token);
             emitBytes(OP_SET_GLOBAL, index);
@@ -350,9 +369,11 @@ static void compileNode(Node *node) {
         break;
     }
     case ND_VAR: {
-        int vmStackPos = resolveLocal(currentLocalState(), node->token);
-        if (vmStackPos != -1) {
-            emitBytes(OP_GET_LOCAL, vmStackPos);
+        int pos = resolveLocal(currentLocalState(), node->token);
+        if (pos != -1) {
+            emitBytes(OP_GET_LOCAL, pos);
+        } else if ((pos = resolveUpvalue(current, node->token)) != -1) {
+            emitBytes(OP_GET_UPVALUE, pos);
         } else {
             uint8_t index = pushIdentifier(node->token);
             emitBytes(OP_GET_GLOBAL, index);
@@ -408,15 +429,30 @@ static void compileFn(Node *fn) {
     initCompiler(&fnCompiler, FN_FN);
     beginScope();
     current->fn->name = newObjString(fn->token->start, fn->token->length);
-    Node *params = fn->operand;
+    compileParams(fn->operand);
+    compileFnBody(fn->thenBranch);
+    ObjFn *resFn = terminateCompiler(&fnCompiler);
+    emitBytes(OP_CLOSURE, pushConstant(OBJ_VAL(resFn)));
+    emitUpvalues(&fnCompiler.upvalueState, resFn->upvalueCount);
+}
+
+static void compileParams(Node *params) {
     while (params) {
         current->fn->arity++;
         compileNode(params);
         params = params->next;
     }
-    compileNode(fn->thenBranch);
-    ObjFn *resFn = terminateCompiler(&fnCompiler);
-    emitConstant(OBJ_VAL(resFn));
+}
+
+static void compileFnBody(Node *body) {
+    compileNode(body);
+}
+
+static void emitUpvalues(UpvalueState *state, int count) {
+    for (int i = 0; i < count; i++) {
+        Upvalue value = state->upvalues[i];
+        emitBytes(value.isLocal ? 1 : 0, value.index);
+    }
 }
 
 static void compileVarDeclValue(Node *operand) {
@@ -451,17 +487,20 @@ static void beginScope() {
 
 static void endScope() {
     currentLocalState()->scopeDepth--;
-    discardHigherDepthLocals(currentScopeDepth());
+    popOrCloseDeeperLocals(currentScopeDepth());
 }
 
-static void discardHigherDepthLocals(int depth) {
-    int discarded = 0;
-    LocalState *local = currentLocalState();
-    while (local->count > 0 && local->locals[local->count - 1].depth > depth) {
-        discarded++;
-        local->count--;
+static void popOrCloseDeeperLocals(int depth) {
+    LocalState *state = currentLocalState();
+    while (state->count > 0 && state->locals[state->count - 1].depth > depth) {
+        Local *current = &state->locals[state->count - 1];
+        if (current->isCaptured) {
+            emitByte(OP_CLOSE_UPVALUE);
+        } else {
+            emitByte(OP_POP);
+        }
+        (state->count)--;
     }
-    emitBytes(OP_POPN, discarded);
 };
 
 static bool isInLoop() {
@@ -475,10 +514,20 @@ static void defineGlobal(Token *name) {
     return;
 }
 
-static void defineLatestLocal() {
-    LocalState *state = currentLocalState();
-    (&state->locals[state->count - 1])->depth = currentScopeDepth();
-    return;
+static int resolveLocal(LocalState *state, Token *ident) {
+    for (int i = state->count - 1; i >= 0; i--) {
+        Local *local = &state->locals[i];
+        if (isIdentifiersEqual(local->name, local->length, ident->start,
+                               ident->length)) {
+            if (local->depth == NOT_INITIALIZED) {
+                compilerError(
+                    ident,
+                    "Cannot reference a local variable in its own initializer");
+            }
+            return i;
+        }
+    }
+    return -1;
 }
 
 static void declareLocal(Token *ident) {
@@ -486,9 +535,12 @@ static void declareLocal(Token *ident) {
         compilerError(ident, "Too many local variables in scope.");
         return;
     }
-
     LocalState *state = currentLocalState();
+    errorIfDupLocal(state, ident);
+    pushNewLocal(ident);
+}
 
+static void errorIfDupLocal(LocalState *state, Token *ident) {
     for (int i = state->count - 1; i >= 0; i--) {
         Local *local = &state->locals[i];
         if (local->depth != NOT_INITIALIZED &&
@@ -503,8 +555,6 @@ static void declareLocal(Token *ident) {
                 "Already a varaible with the same name exists in this scope");
         }
     }
-
-    pushNewLocal(ident);
 }
 
 static void pushNewLocal(Token *ident) {
@@ -513,18 +563,56 @@ static void pushNewLocal(Token *ident) {
     local->name = ident->start;
     local->length = ident->length;
     local->depth = NOT_INITIALIZED;
+    local->isCaptured = false;
 }
 
-static int resolveLocal(LocalState *state, Token *ident) {
-    for (int i = state->count - 1; i >= 0; i--) {
-        Local *local = &state->locals[i];
-        if (isIdentifiersEqual(local->name, local->length, ident->start,
-                               ident->length)) {
-            if (local->depth == NOT_INITIALIZED) {
-                compilerError(
-                    ident,
-                    "Cannot reference a local variable in its own initializer");
-            }
+static void defineLatestLocal() {
+    LocalState *state = currentLocalState();
+    (&state->locals[state->count - 1])->depth = currentScopeDepth();
+    return;
+}
+
+static int resolveUpvalue(Compiler *compiler, Token *ident) {
+    if (!compiler->enclosing) {
+        return -1;
+    }
+
+    int local = resolveLocal(&compiler->enclosing->localState, ident);
+    if (local != -1) {
+        compiler->enclosing->localState.locals[local].isCaptured = true;
+        return pushNewUpvalue(compiler, (uint8_t)local, true);
+    }
+
+    int upvalue = resolveUpvalue(compiler->enclosing, ident);
+    if (upvalue != -1) {
+        return pushNewUpvalue(compiler, (uint8_t)upvalue, false);
+    }
+
+    return -1;
+}
+
+static int pushNewUpvalue(Compiler *compiler, uint8_t index, bool isLocal) {
+    UpvalueState *state = &compiler->upvalueState;
+    int count = compiler->fn->upvalueCount;
+    int dupIndex = findDupUpvalue(state, count, index, isLocal);
+    if (dupIndex != -1) {
+        return dupIndex;
+    }
+    if (count == UINT8_COUNT) {
+        compilerError(compiler->currentNode->token,
+                      "Too many closure variables in function.");
+        return 0;
+    }
+    state->upvalues[count].isLocal = isLocal;
+    state->upvalues[count].index = index;
+    return compiler->fn->upvalueCount++;
+}
+
+static int findDupUpvalue(UpvalueState *state, int count, uint8_t index,
+                          bool isLocal) {
+    for (int i = 0; i < count; i++) {
+        Upvalue value = state->upvalues[i];
+        if (value.index == index && value.isLocal == isLocal) {
             return i;
         }
     }

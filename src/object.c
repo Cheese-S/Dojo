@@ -9,7 +9,6 @@
     (type *)allocateObj(sizeof(type), objectType)
 
 static Obj *allocateObj(size_t size, ObjType type);
-static void freeObj(Obj *obj);
 static char *allocateNewCStr(const char *str, int len);
 static ObjString *getInternedString(const char *str, int len);
 static ObjString *internString(const char *str, int len);
@@ -18,8 +17,13 @@ static void initObjString(ObjString *objstr, const char *str, int len);
 static Obj *allocateObj(size_t size, ObjType type) {
     Obj *object = gcReallocate(NULL, 0, size);
     object->type = type;
+    object->isMarked = false;
     object->next = vm.objs;
     vm.objs = object;
+
+#ifdef DEBUG_LOG_GC
+    printf("%p allocate %zu for %d\n", (void *)object, size, type);
+#endif
     return object;
 }
 
@@ -32,7 +36,10 @@ void freeObjs(Obj *head) {
     }
 }
 
-static void freeObj(Obj *obj) {
+void freeObj(Obj *obj) {
+#ifdef DEBUG_LOG_GC
+    printf("%p free type %d\n", (void *)obj, obj->type);
+#endif
     switch (obj->type) {
     case OBJ_CLOSURE: {
         ObjClosure *closure = (ObjClosure *)obj;
@@ -69,12 +76,20 @@ void printObjToFile(FILE *f, Value obj) {
     switch (OBJ_TYPE(obj)) {
     case OBJ_CLOSURE: {
         ObjFn *fn = AS_CLOSURE(obj)->fn;
-        fprintf(f, "<fn %.*s>", fn->name->length, fn->name->str);
+        if (fn->name) {
+            fprintf(f, "<fn %.*s>", fn->name->length, fn->name->str);
+        } else {
+            fprintf(f, "<script>");
+        }
         return;
     }
     case OBJ_FN: {
         ObjFn *fn = AS_FN(obj);
-        fprintf(f, "<fn %.*s>", fn->name->length, fn->name->str);
+        if (fn->name) {
+            fprintf(f, "<fn %.*s>", fn->name->length, fn->name->str);
+        } else {
+            fprintf(f, "<script>");
+        }
         return;
     }
     case OBJ_NATIVE_FN: {
@@ -157,7 +172,9 @@ static ObjString *getInternedString(const char *str, int len) {
 static ObjString *internString(const char *str, int len) {
     ObjString *objstr = ALLOCATE_OBJ(ObjString, OBJ_STRING);
     initObjString(objstr, str, len);
+    push(OBJ_VAL(objstr));
     mapPut(&vm.stringLiterals, objstr, NIL_VAL);
+    pop();
     return objstr;
 }
 

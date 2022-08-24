@@ -33,6 +33,16 @@ void freeMap(Hashmap *map) {
     FREE_ARRAY(Entry, map->entries, map->capacity);
 }
 
+void markMap(Hashmap *map) {
+    for (int i = 0; i < map->capacity; i++) {
+        Entry *entry = &map->entries[i];
+        if (!isInvalidEntry(entry)) {
+            markValue(entry->value);
+            markObj((Obj *)entry->key);
+        }
+    }
+}
+
 bool mapGet(Hashmap *map, ObjString *key, Value *receiver) {
     if (map->count == 0)
         return false;
@@ -98,6 +108,15 @@ bool mapDelete(Hashmap *map, ObjString *key) {
 
     entry->key = TOMBSTONE;
     return true;
+}
+
+void mapRemoveWhite(Hashmap *map) {
+    for (int i = 0; i < map->capacity; i++) {
+        Entry *entry = &map->entries[i];
+        if (!isInvalidEntry(entry) && !entry->key->obj.isMarked) {
+            mapDelete(map, entry->key);
+        }
+    }
 }
 
 static void rehash(Hashmap *map, int newCapacity) {

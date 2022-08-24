@@ -15,6 +15,7 @@ typedef enum {
 
 typedef struct Obj {
     ObjType type;
+    bool isMarked;
     struct Obj *next;
 } Obj;
 
@@ -75,7 +76,7 @@ static inline bool isObjType(Value value, ObjType type) {
 }
 void printObjToFile(FILE *f, Value obj);
 void freeObjs(Obj *head);
-
+void freeObj(Obj *obj);
 ObjClosure *newObjClosure(ObjFn *fn);
 ObjFn *newObjFn();
 ObjNativeFn *newObjNativeFn(NativeFn fn);

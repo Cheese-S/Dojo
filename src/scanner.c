@@ -240,9 +240,7 @@ static Token *skipWhiteSpace() {
                     advance();
                 }
                 if (peek() == '\n') {
-                    scanner.line++;
-                    advance();
-                    return makeToken(TOKEN_NEWLINE);
+                    return emptyToken();
                 }
             } else if (peekNext() == '*') {
                 advanceN(2);

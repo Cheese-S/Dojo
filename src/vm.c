@@ -29,8 +29,6 @@ static ObjUpvalue *findOpenUpvalueParent(Value *local);
 static bool isFalsey();
 static CallFrame *lastCallFrame();
 static void resetStack();
-static void push(Value value);
-static Value pop();
 static Value peek(int depth);
 
 static Value clockNative(int argCount, Value *args);
@@ -445,12 +443,12 @@ static void resetStack() {
     vm.openUpvalues = NULL;
 }
 
-static void push(Value value) {
+void push(Value value) {
     *(vm.stackTop++) = value;
     vm.count++;
 }
 
-static Value pop() {
+Value pop() {
     vm.count--;
     return *(--vm.stackTop);
 }

@@ -4,6 +4,14 @@
 #include "parser.h"
 #include <stdlib.h>
 
+typedef struct {
+    Obj **grayStack;
+    int count;
+    int capacity;
+    size_t allocated;
+    size_t nextGC;
+} GC;
+
 #define GC_ALLOCATE(type, count)                                               \
     (type *)gcReallocate(NULL, 0, sizeof(type) * count);
 #define ALLOCATE(type, count) (type *)reallocate(NULL, 0, sizeof(type) * count)
@@ -25,4 +33,9 @@
 void *gcReallocate(void *ptr, size_t oldSize, size_t newSize);
 void *reallocate(void *ptr, size_t oldSize, size_t newSize);
 
+void initGC();
+void terminateGC();
+
+void markValue(Value val);
+void markObj(Obj *obj);
 #endif

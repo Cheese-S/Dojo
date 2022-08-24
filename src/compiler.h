@@ -52,6 +52,7 @@ typedef struct Compiler {
 
 void initCompiler(Compiler *compiler, FnType type);
 ObjFn *terminateCompiler(Compiler *compiler);
+void markCompilerRoots();
 ObjFn *compile(const char *source);
 
 #endif

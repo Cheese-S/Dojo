@@ -2,6 +2,7 @@
 #include "chunk.h"
 #include "common.h"
 #include "error.h"
+#include "hashmap.h"
 #include "memory.h"
 #include "node.h"
 #include "object.h"
@@ -127,6 +128,15 @@ ObjFn *terminateCompiler(Compiler *compiler) {
     freeStmts(compiler->stmts);
     freeMap(&compiler->stringConstants);
     return compiler->fn;
+}
+
+void markCompilerRoots() {
+    Compiler *compiler = current;
+    while (compiler) {
+        markObj((Obj *)compiler->fn);
+        markMap(&compiler->stringConstants);
+        compiler = compiler->enclosing;
+    }
 }
 
 // TODO: ALLOW EMPTY FILE

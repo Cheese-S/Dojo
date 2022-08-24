@@ -1,5 +1,6 @@
 #include "chunk.h"
 #include "memory.h"
+#include "vm.h"
 #include <stdint.h>
 
 static void growLinesAndCodes(Chunk *chunk);
@@ -36,7 +37,10 @@ static void growLinesAndCodes(Chunk *chunk) {
 }
 
 int addConstantToChunk(Chunk *chunk, Value value) {
-    return writeValueArray(&chunk->constants, value);
+    push(value);
+    int index = writeValueArray(&chunk->constants, value);
+    pop();
+    return index;
 }
 
 Value getConstantAtIndex(Chunk *chunk, int index) {

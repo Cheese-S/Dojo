@@ -38,5 +38,7 @@ extern VM vm;
 
 InterpreterResult interpret(const char *source);
 void initVM(bool isREPL);
+void push(Value value);
+Value pop();
 
 #endif

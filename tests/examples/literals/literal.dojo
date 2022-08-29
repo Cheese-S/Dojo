@@ -10,12 +10,11 @@
 */
 */
 
-print false
-print true
-print nil
-print 5
-print 5.5
-        print "Of course it ignores whitespace as well!"
-print `Dojo multiline string
-
-Example!`
+print(false)
+print(true)
+print(nil)
+print(5)
+print(5.5)
+        print("Of course it ignores whitespace as well!")
+print(`multiline
+string`)

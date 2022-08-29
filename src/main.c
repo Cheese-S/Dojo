@@ -76,7 +76,7 @@ static void repl() {
 
 static void runFile(const char *path) {
     char *source = readFile(path);
-    initVM(false);
+    initVM();
     InterpreterResult res = interpret(source);
     free(source);
     if (res != INTERPRET_OK) {

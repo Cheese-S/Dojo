@@ -41,10 +41,26 @@ void freeObj(Obj *obj) {
     printf("%p free type %d\n", (void *)obj, obj->type);
 #endif
     switch (obj->type) {
+    case OBJ_BOUND_METHOD: {
+        GC_FREE(ObjBoundMethod, obj);
+        break;
+    }
+    case OBJ_INSTANCE: {
+        ObjInstance *instance = (ObjInstance *)obj;
+        freeMap(&instance->fields);
+        GC_FREE(ObjInstance, obj);
+        break;
+    }
+    case OBJ_CLASS: {
+        ObjClass *djClass = (ObjClass *)obj;
+        freeMap(&djClass->methods);
+        GC_FREE(ObjClass, obj);
+        break;
+    }
     case OBJ_CLOSURE: {
         ObjClosure *closure = (ObjClosure *)obj;
-        GC_FREE(ObjClosure, obj);
         FREE_ARRAY(ObjUpvalue *, closure->upvalues, closure->upvalueCount);
+        GC_FREE(ObjClosure, obj);
         break;
     }
     case OBJ_FN: {
@@ -74,6 +90,23 @@ void freeObj(Obj *obj) {
 
 void printObjToFile(FILE *f, Value obj) {
     switch (OBJ_TYPE(obj)) {
+    case OBJ_BOUND_METHOD: {
+        ObjBoundMethod *bMethod = AS_BOUND_METHOD(obj);
+        fprintf(f, "<bound method %.*s>", bMethod->method->fn->name->length,
+                bMethod->method->fn->name->str);
+        break;
+    }
+    case OBJ_INSTANCE: {
+        ObjInstance *instance = AS_INSTANCE(obj);
+        fprintf(f, "<%.*s instance>", instance->djClass->name->length,
+                instance->djClass->name->str);
+        break;
+    }
+    case OBJ_CLASS: {
+        ObjClass *djClass = AS_CLASS(obj);
+        fprintf(f, "<class %.*s>", djClass->name->length, djClass->name->str);
+        break;
+    }
     case OBJ_CLOSURE: {
         ObjFn *fn = AS_CLOSURE(obj)->fn;
         if (fn->name) {
@@ -108,6 +141,27 @@ void printObjToFile(FILE *f, Value obj) {
     }
 }
 
+ObjBoundMethod *newObjBoundMethod(Value receiver, ObjClosure *method) {
+    ObjBoundMethod *bMethod = ALLOCATE_OBJ(ObjBoundMethod, OBJ_BOUND_METHOD);
+    bMethod->receiver = receiver;
+    bMethod->method = method;
+    return bMethod;
+}
+
+ObjInstance *newObjInstance(ObjClass *djClass) {
+    ObjInstance *instance = ALLOCATE_OBJ(ObjInstance, OBJ_INSTANCE);
+    instance->djClass = djClass;
+    initMap(&instance->fields);
+    return instance;
+}
+
+ObjClass *newObjClass(ObjString *name) {
+    ObjClass *djClass = ALLOCATE_OBJ(ObjClass, OBJ_CLASS);
+    djClass->name = name;
+    initMap(&djClass->methods);
+    return djClass;
+}
+
 ObjClosure *newObjClosure(ObjFn *fn) {
     ObjUpvalue **values = GC_ALLOCATE(ObjUpvalue *, fn->upvalueCount);
     for (int i = 0; i < fn->upvalueCount; i++) {
@@ -129,9 +183,10 @@ ObjFn *newObjFn() {
     return fn;
 }
 
-ObjNativeFn *newObjNativeFn(NativeFn fn) {
+ObjNativeFn *newObjNativeFn(NativeFn fn, int arity) {
     ObjNativeFn *native = ALLOCATE_OBJ(ObjNativeFn, OBJ_NATIVE_FN);
     native->fn = fn;
+    native->arity = arity;
     return native;
 }
 
@@ -144,9 +199,6 @@ ObjUpvalue *newObjUpvalue(Value *slot) {
 }
 
 Value newObjStringInVal(const char *str, int len) {
-    if (vm.isREPL) {
-        str = allocateNewCStr(str, len);
-    }
     return OBJ_VAL(newObjString(str, len));
 }
 

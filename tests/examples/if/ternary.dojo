@@ -1,7 +1,7 @@
-print true ? 0 + 0 : 1
-print false ? 0 : 5 / 2
+print(true ? 0 + 0 : 1)
+print(false ? 0 : 5 / 2)
 
 // Ternary is right associative
 // So x ? y : z ? a : b should be parsed as x ? y : (z ? a : b)
 
-print false ? 0 : false ? 2 : 3
+print(false ? 0 : false ? 2 : 3)

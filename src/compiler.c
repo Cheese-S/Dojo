@@ -19,15 +19,26 @@
 
 static void initLoopState(LoopState *state);
 static void initLocalState(LocalState *state);
-static void claimFirstLocal(LocalState *state);
+static void claimFirstLocal(LocalState *state, FnType type);
 
 static void compileStmts(Node *node);
 static void compileNode(Node *node);
 static void freeStmts(Node *AST);
 static void freeNode(Node *node);
+
+static void compileHeritage(Token *child, Node *heritage);
+static void compileCall(Node *call);
+static void compileSuperInvocation(Node *call);
+static void compileInvocation(Node *call);
+static void compileVar(Token *name);
+static void compileThis();
+static void compileSuper();
 static void compileVarDeclValue(Node *operand);
-static void compileFn(Node *fn);
+static void compileAssignVariable(Node *assignment);
+static void compileAssignProperty(Node *assignment);
+static void compileFn(Node *fn, FnType type);
 static void compileParams(Node *params);
+static uint8_t compileArgs(Token *fnName, Node *args);
 static void compileFnBody(Node *body);
 static void emitUpvalues(UpvalueState *state, int count);
 
@@ -74,6 +85,7 @@ static void patchJump(int offset);
 static void patchBreaks();
 static bool isUnpatchedBreak(uint8_t *code, int offset);
 static void emitBinaryOp(TokenType op);
+static void emitInitReturn();
 static void emitImplicitReturn();
 static void emitBytes(uint8_t byte1, uint8_t byte2);
 static void emitByte(uint8_t byte);
@@ -85,8 +97,25 @@ static LocalState *currentLocalState();
 static LoopState *currentLoopState();
 static Chunk *currentChunk();
 
+/* ------------------------------- STATIC DATA ------------------------------ */
 Compiler *current;
-static bool compilerHadError;
+static ClassState *currentClass = NULL;
+static bool compilerHadError = false;
+static Token superToken = {
+    .type = TOKEN_EMPTY,
+    .length = 5,
+    .start = "super",
+    .line = -1,
+    .next = NULL,
+};
+
+static Token thisToken = {
+    .type = TOKEN_EMPTY,
+    .length = 4,
+    .start = "this",
+    .line = -1,
+    .next = NULL,
+};
 
 void initCompiler(Compiler *compiler, FnType type) {
     compiler->enclosing = current;
@@ -98,7 +127,7 @@ void initCompiler(Compiler *compiler, FnType type) {
     initMap(&compiler->stringConstants);
     compiler->fn = newObjFn();
     current = compiler;
-    claimFirstLocal(currentLocalState());
+    claimFirstLocal(currentLocalState(), type);
 }
 
 static void initLoopState(LoopState *state) {
@@ -113,17 +142,21 @@ static void initLocalState(LocalState *state) {
     state->scopeDepth = 0;
 }
 
-static void claimFirstLocal(LocalState *state) {
+static void claimFirstLocal(LocalState *state, FnType type) {
 
     Local *local = &state->locals[state->count++];
     local->depth = 0;
-    local->name = "";
-    local->length = 0;
+    if (type == FN_METHOD || type == FN_INIT) {
+        local->name = "this";
+        local->length = 4;
+    } else {
+        local->name = "";
+        local->length = 0;
+    }
     local->isCaptured = false;
 }
 
 ObjFn *terminateCompiler(Compiler *compiler) {
-    emitImplicitReturn();
     current = compiler->enclosing;
     freeStmts(compiler->stmts);
     freeMap(&compiler->stringConstants);
@@ -138,8 +171,6 @@ void markCompilerRoots() {
         compiler = compiler->enclosing;
     }
 }
-
-// TODO: ALLOW EMPTY FILE
 
 ObjFn *compile(const char *source) {
     Compiler compiler;
@@ -174,22 +205,79 @@ static void compileNode(Node *node) {
     current->currentNode = node;
 
     switch (node->type) {
+    case ND_CLASS_DECL: {
+        if (isGlobalScope()) {
+            uint8_t index = pushIdentifier(node->token);
+            emitBytes(OP_CLASS, index);
+            emitBytes(OP_DEFINE_GLOBAL, index);
+        } else {
+            declareLocal(node->token);
+            emitBytes(OP_CLASS, currentLocalState()->count - 1);
+            defineLatestLocal();
+        }
+        ClassState state;
+        state.enclosing = currentClass;
+        state.hasSuperClass = false;
+        currentClass = &state;
+
+        compileHeritage(node->token, node->operand);
+        compileVar(node->token);
+
+        Node *method = node->thenBranch;
+        while (method) {
+            compileNode(method);
+            method = method->next;
+        }
+        emitByte(OP_POP);
+
+        if (currentClass->hasSuperClass) {
+            endScope();
+        }
+
+        currentClass = currentClass->enclosing;
+        break;
+    }
+    case ND_METHOD: {
+        uint8_t index = pushIdentifier(node->token);
+        FnType type = isIdentifiersEqual("init", 4, node->token->start,
+                                         node->token->length)
+                          ? FN_INIT
+                          : FN_METHOD;
+        compileFn(node, type);
+        emitBytes(OP_METHOD, index);
+        break;
+    }
+    case ND_SUPER: {
+        if (!currentClass) {
+            compilerError(node->token,
+                          "Cannot use 'super' outside of a class.");
+        }
+        if (!currentClass->hasSuperClass) {
+            compilerError(node->token,
+                          "Cannot user 'super' in a class with no superclass.");
+        }
+        uint8_t index = pushIdentifier(node->token);
+        compileThis();
+        compileSuper();
+        emitBytes(OP_GET_SUPER, index);
+        break;
+    }
     case ND_FN_DECL:
         if (isGlobalScope()) {
-            compileFn(node);
+            compileFn(node, FN_FN);
             defineGlobal(node->token);
         } else {
             // Recursive function "uses" itself before it is fully defined.
             // So we have to allow this.
             declareLocal(node->token);
             defineLatestLocal();
-            compileFn(node);
+            compileFn(node, FN_FN);
         }
         break;
     case ND_PARAM:
         declareLocal(node->token);
         defineLatestLocal();
-        return;
+        break;
     case ND_VAR_DECL: {
         if (isGlobalScope()) {
             compileVarDeclValue(node->operand);
@@ -292,14 +380,13 @@ static void compileNode(Node *node) {
         endScope();
         break;
     }
-    case ND_PRINT: {
-        compileNode(node->operand);
-        emitByte(OP_PRINT);
-        break;
-    }
     case ND_RETURN: {
         if (current->type == FN_SCRPIT) {
             compilerError(node->token, "Cannot return from top-level code.");
+        }
+        if (current->type == FN_INIT) {
+            compilerError(node->token,
+                          "Cannot return a value form an initializer");
         }
         if (node->operand) {
             compileNode(node->operand);
@@ -315,20 +402,14 @@ static void compileNode(Node *node) {
         break;
     }
     case ND_CALL: {
-        uint8_t argCount = 0;
-        Node *args = node->operand;
-        compileNode(node->lhs);
-        while (args) {
-            argCount++;
-            Node *next = args->next;
-            compileNode(args);
-            if (argCount == 255) {
-                compilerError(node->lhs->token,
-                              "Can't have more than 255 arguments");
-            }
-            args = next;
+        if (node->lhs->type == ND_PROPERTY) {
+            compileInvocation(node);
+        } else if (node->lhs->type == ND_SUPER) {
+            compileSuperInvocation(node);
+        } else {
+            compileCall(node);
         }
-        emitBytes(OP_CALL, argCount);
+
         break;
     }
     case ND_ASSIGNMENT: {
@@ -336,15 +417,10 @@ static void compileNode(Node *node) {
             compilerError(node->token, "Invalid assignment target.");
         }
         compileNode(node->rhs);
-
-        int pos = resolveLocal(currentLocalState(), node->lhs->token);
-        if (pos != -1) {
-            emitBytes(OP_SET_LOCAL, pos);
-        } else if ((pos = resolveUpvalue(current, node->lhs->token)) != -1) {
-            emitBytes(OP_SET_UPVALUE, pos);
-        } else {
-            uint8_t index = pushIdentifier(node->lhs->token);
-            emitBytes(OP_SET_GLOBAL, index);
+        if (node->lhs->type == ND_PROPERTY) {
+            compileAssignProperty(node);
+        } else if (node->lhs->type == ND_VAR) {
+            compileAssignVariable(node);
         }
 
         break;
@@ -378,16 +454,23 @@ static void compileNode(Node *node) {
         emitByte(code);
         break;
     }
-    case ND_VAR: {
-        int pos = resolveLocal(currentLocalState(), node->token);
-        if (pos != -1) {
-            emitBytes(OP_GET_LOCAL, pos);
-        } else if ((pos = resolveUpvalue(current, node->token)) != -1) {
-            emitBytes(OP_GET_UPVALUE, pos);
-        } else {
-            uint8_t index = pushIdentifier(node->token);
-            emitBytes(OP_GET_GLOBAL, index);
+    case ND_PROPERTY: {
+        compileNode(node->lhs);
+        uint8_t index = pushIdentifier(node->token);
+        emitBytes(OP_GET_PROPERTY, index);
+        break;
+    }
+    case ND_THIS: {
+        if (!currentClass) {
+            compilerError(node->token,
+                          "Cannot use 'this' keyword outside of class");
+            break;
         }
+        compileVar(node->token);
+        break;
+    }
+    case ND_VAR: {
+        compileVar(node->token);
         break;
     }
     case ND_NUMBER:
@@ -399,13 +482,13 @@ static void compileNode(Node *node) {
             newObjStringInVal(node->token->start + 1, node->token->length - 2));
         break;
     case ND_TEMPLATE_HEAD:
-        compileNode(node->next);
+        compileNode(node->operand);
         emitConstant(
             newObjStringInVal(node->token->start + 1, node->token->length - 1));
         emitBytes(OP_TEMPLATE, (uint8_t)(node->count));
         break;
     case ND_TEMPLATE_SPAN: {
-        int len = node->token->type == TOKEN_AFTER_TEMPLATE
+        int len = (node->token->type == TOKEN_AFTER_TEMPLATE)
                       ? node->token->length - 1
                       : node->token->length;
         if (node->next != NULL) {
@@ -434,13 +517,65 @@ static void compileNode(Node *node) {
     current->currentNode = prev;
 }
 
-static void compileFn(Node *fn) {
+static void compileHeritage(Token *child, Node *heritage) {
+    if (heritage) {
+        currentClass->hasSuperClass = true;
+        compileVar(heritage->token);
+
+        beginScope();
+        Token superToken = syntheticToken("super", 5);
+        declareLocal(&superToken);
+        defineLatestLocal();
+
+        compileVar(child);
+        if (isIdentifiersEqual(child->start, child->length,
+                               heritage->token->start,
+                               heritage->token->length)) {
+            compilerError(heritage->token,
+                          "A class cannot inherit from itself");
+        }
+        emitByte(OP_INHERIT);
+    }
+}
+
+static void compileCall(Node *call) {
+    Node *args = call->operand;
+    compileNode(call->lhs);
+    uint8_t argCount = compileArgs(call->lhs->token, args);
+    emitBytes(OP_CALL, argCount);
+}
+
+static void compileSuperInvocation(Node *call) {
+    compileThis();
+    Node *args = call->operand;
+    uint8_t argCount = compileArgs(call->lhs->token, args);
+    compileSuper();
+    uint8_t index = pushIdentifier(call->lhs->token);
+    emitBytes(OP_SUPER_INVOKE, index);
+    emitByte(argCount);
+}
+
+static void compileInvocation(Node *call) {
+    compileNode(call->lhs->lhs);
+    uint8_t index = pushIdentifier(call->lhs->token);
+    Node *args = call->operand;
+    uint8_t argCount = compileArgs(call->lhs->token, args);
+    emitBytes(OP_INVOKE, index);
+    emitByte(argCount);
+}
+
+static void compileFn(Node *fn, FnType type) {
     Compiler fnCompiler;
-    initCompiler(&fnCompiler, FN_FN);
+    initCompiler(&fnCompiler, type);
     beginScope();
     current->fn->name = newObjString(fn->token->start, fn->token->length);
     compileParams(fn->operand);
     compileFnBody(fn->thenBranch);
+    if (type == FN_INIT) {
+        emitInitReturn();
+    } else {
+        emitImplicitReturn();
+    }
     ObjFn *resFn = terminateCompiler(&fnCompiler);
     emitBytes(OP_CLOSURE, pushConstant(OBJ_VAL(resFn)));
     emitUpvalues(&fnCompiler.upvalueState, resFn->upvalueCount);
@@ -454,6 +589,20 @@ static void compileParams(Node *params) {
     }
 }
 
+static uint8_t compileArgs(Token *fnName, Node *args) {
+    int argCount = 0;
+    while (args) {
+        argCount++;
+        Node *next = args->next;
+        compileNode(args);
+        if (argCount == 255) {
+            compilerError(fnName, "Can't have more than 255 arguments");
+        }
+        args = next;
+    }
+    return (uint8_t)argCount;
+}
+
 static void compileFnBody(Node *body) {
     compileNode(body);
 }
@@ -465,12 +614,50 @@ static void emitUpvalues(UpvalueState *state, int count) {
     }
 }
 
+static void compileVar(Token *name) {
+    int pos = resolveLocal(currentLocalState(), name);
+    if (pos != -1) {
+        emitBytes(OP_GET_LOCAL, pos);
+    } else if ((pos = resolveUpvalue(current, name)) != -1) {
+        emitBytes(OP_GET_UPVALUE, pos);
+    } else {
+        uint8_t index = pushIdentifier(name);
+        emitBytes(OP_GET_GLOBAL, index);
+    }
+}
+
+static void compileThis() {
+    compileVar(&thisToken);
+}
+
+static void compileSuper() {
+    compileVar(&superToken);
+}
+
 static void compileVarDeclValue(Node *operand) {
     if (operand) {
         compileNode(operand);
     } else {
         emitByte(OP_NIL);
     }
+}
+
+static void compileAssignVariable(Node *assignment) {
+    int pos = resolveLocal(currentLocalState(), assignment->lhs->token);
+    if (pos != -1) {
+        emitBytes(OP_SET_LOCAL, pos);
+    } else if ((pos = resolveUpvalue(current, assignment->lhs->token)) != -1) {
+        emitBytes(OP_SET_UPVALUE, pos);
+    } else {
+        uint8_t index = pushIdentifier(assignment->lhs->token);
+        emitBytes(OP_SET_GLOBAL, index);
+    }
+}
+
+static void compileAssignProperty(Node *assignment) {
+    compileNode(assignment->lhs->lhs);
+    uint8_t index = pushIdentifier(assignment->lhs->token);
+    emitBytes(OP_SET_PROPERTY, index);
 }
 
 static void beginLoop() {
@@ -638,7 +825,7 @@ static bool isIdentifiersEqual(const char *str1, int len1, const char *str2,
 }
 
 static bool isAssignable(Node *lhs) {
-    return lhs->type == ND_VAR;
+    return lhs->type == ND_VAR || lhs->type == ND_PROPERTY;
 }
 
 static void emitConstant(Value constant) {
@@ -765,6 +952,12 @@ static void emitLoop(int loopStart) {
     emitByte(offset & 0xff);
 }
 
+static void emitInitReturn() {
+    addCodeToChunk(currentChunk(), OP_GET_LOCAL, -1);
+    addCodeToChunk(currentChunk(), 0, -1);
+    addCodeToChunk(currentChunk(), OP_RETURN, -1);
+}
+
 static void emitImplicitReturn() {
     addCodeToChunk(currentChunk(), OP_NIL, -1);
     addCodeToChunk(currentChunk(), OP_RETURN, -1);
@@ -789,21 +982,30 @@ static void freeStmts(Node *script) {
 }
 
 static void freeNode(Node *node) {
-    if (node == NULL)
+    if (!node)
         return;
 
     switch (node->type) {
-    case ND_CALL: {
+    case ND_PROPERTY:
         freeNode(node->lhs);
-        Node *current = node->operand;
-        while (current) {
-            Node *next = current->next;
-            freeNode(current);
-            current = next;
-        }
+        FREE(Node, node);
+        return;
+    case ND_CLASS_DECL: {
+        freeStmts(node->thenBranch);
+        freeNode(node->operand);
         FREE(Node, node);
         return;
     }
+    case ND_CALL: {
+        freeNode(node->lhs);
+        freeStmts(node->operand);
+        FREE(Node, node);
+        return;
+    }
+    case ND_BLOCK:
+        freeStmts(node->operand);
+        FREE(Node, node);
+        return;
     case ND_FOR:
         freeNode(node->init);
         freeNode(node->operand);
@@ -811,6 +1013,7 @@ static void freeNode(Node *node) {
         freeNode(node->thenBranch);
         FREE(Node, node);
         return;
+    case ND_METHOD:
     case ND_FN_DECL:
     case ND_WHILE:
         freeNode(node->operand);
@@ -833,7 +1036,6 @@ static void freeNode(Node *node) {
         FREE(Node, node);
         return;
     case ND_PARAM:
-    case ND_TEMPLATE_HEAD:
         freeNode(node->next);
         FREE(Node, node);
         return;
@@ -842,18 +1044,19 @@ static void freeNode(Node *node) {
         freeNode(node->operand);
         FREE(Node, node);
         return;
+    case ND_TEMPLATE_HEAD:
     case ND_RETURN:
-    case ND_BLOCK:
     case ND_VAR_DECL:
     case ND_EXPRESSION:
-    case ND_PRINT:
     case ND_UNARY:
         freeNode(node->operand);
         FREE(Node, node);
         return;
+    case ND_SUPER:
     case ND_BREAK:
     case ND_CONTINUE:
     case ND_VAR:
+    case ND_THIS:
     case ND_STRING:
     case ND_NUMBER:
     case ND_LITERAL:

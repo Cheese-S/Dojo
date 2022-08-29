@@ -73,6 +73,17 @@ bool mapPut(Hashmap *map, ObjString *key, Value value) {
     return isNewKey;
 }
 
+void mapPutAll(Hashmap *src, Hashmap *dest) {
+    int added = 0;
+    for (int i = 0; added != src->count && i < src->capacity; i++) {
+        Entry *entry = &src->entries[i];
+        if (!isInvalidEntry(entry)) {
+            mapPut(dest, entry->key, entry->value);
+            added++;
+        }
+    }
+}
+
 ObjString *mapFindString(Hashmap *map, const char *str, int len,
                          uint32_t hash) {
     if (map->count == 0) {

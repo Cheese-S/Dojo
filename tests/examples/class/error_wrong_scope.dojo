@@ -1,0 +1,5 @@
+// Cannot use this or super outside of class scope
+
+this
+
+super

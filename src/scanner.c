@@ -89,7 +89,7 @@ Token *nextToken() {
 
 static void freeTokens() {
     Token *current = scanner.sentinel->next;
-    while (current != NULL) {
+    while (current) {
         Token *next = current->next;
         FREE(Token, current);
         current = next;
@@ -298,7 +298,15 @@ static TokenType identifierType() {
         break;
     }
     case 'e':
-        return checkKeyword(1, 3, "lse", TOKEN_ELSE);
+        if (currentTokenLen() > 1) {
+            switch (scanner.start[1]) {
+            case 'l':
+                return checkKeyword(2, 2, "se", TOKEN_ELSE);
+            case 'x':
+                return checkKeyword(2, 5, "tends", TOKEN_EXTENDS);
+            }
+        }
+        break;
     case 'f': {
         int len = currentTokenLen();
         if (len > 1) {
@@ -317,9 +325,6 @@ static TokenType identifierType() {
         return checkKeyword(1, 1, "f", TOKEN_IF);
     case 'n':
         return checkKeyword(1, 2, "il", TOKEN_NIL);
-    case 'p':
-        // TODO: REMOVE AFTER ADDING NATIVE FUNCTION "PRINT"
-        return checkKeyword(1, 4, "rint", TOKEN_PRINT);
     case 'r':
         return checkKeyword(1, 5, "eturn", TOKEN_RETURN);
     case 's':
@@ -351,9 +356,10 @@ static TokenType checkKeyword(int start, int length, const char *rest,
     return TOKEN_IDENTIFIER;
 }
 
-// stringTemplate appends a series of Tokens with the given input `xxxxxxxxx`
-// A string with no template will append only one token TOKEN_STRING
-// A template string, `head ${false} mid ${true} end` is scanned as follows
+// stringTemplate appends a series of Tokens with the given input
+// `xxxxxxxxx` A string with no template will append only one token
+// TOKEN_STRING A template string, `head ${false} mid ${true} end` is
+// scanned as follows
 // "`head" TOKEN_PRE_TEMPLATE
 // false   TOKEN_FALSE
 // " mid " TOKNE_MID_TEMPLATE
@@ -492,6 +498,16 @@ static Token *makeToken(TokenType type) {
     token->start = scanner.start;
     token->length = (int)(scanner.current - scanner.start);
     token->line = scanner.line;
+    token->next = NULL;
+    return token;
+}
+
+Token syntheticToken(const char *str, int length) {
+    Token token = {.type = TOKEN_EMPTY,
+                   .length = length,
+                   .start = str,
+                   .next = NULL,
+                   .line = -1};
     return token;
 }
 

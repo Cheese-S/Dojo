@@ -1,7 +1,7 @@
 // A function is defined as follows
 
 fn function(a, b, c) {
-    print a + b + c
+    print(a + b + c)
 }
 
 // Called as follows
@@ -9,9 +9,9 @@ fn function(a, b, c) {
 function(1, 2, 3 + 5)
 
 
-// You can also print the function
+// You can also print(the function)
 
-print `This is the name of the function ${function}`
+print(`This is the name of the function ${function}`)
 
 // Function can of course be recursive
 
@@ -21,4 +21,4 @@ fn fib(n) {
     return fib(n - 2) + fib(n - 1)
 }
 
-print fib(8)
+print(fib(8))

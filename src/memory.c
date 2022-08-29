@@ -106,6 +106,7 @@ static void markRoots() {
     markFrameClosures();
     markMap(&vm.globals);
     markCompilerRoots();
+    markObj((Obj *)vm.initString);
 }
 
 static void traceRefs() {
@@ -143,6 +144,24 @@ static void blackenObj(Obj *obj) {
     printf("\n");
 #endif
     switch (obj->type) {
+    case OBJ_BOUND_METHOD: {
+        ObjBoundMethod *bMethod = ((ObjBoundMethod *)obj);
+        markValue(bMethod->receiver);
+        markObj((Obj *)bMethod->method);
+        break;
+    }
+    case OBJ_INSTANCE: {
+        ObjInstance *instance = ((ObjInstance *)obj);
+        markObj((Obj *)instance->djClass);
+        markMap(&instance->fields);
+        break;
+    }
+    case OBJ_CLASS: {
+        ObjClass *djClass = ((ObjClass *)obj);
+        markObj((Obj *)djClass->name);
+        markMap(&djClass->methods);
+        break;
+    }
     case OBJ_CLOSURE: {
         ObjClosure *closure = ((ObjClosure *)obj);
         markObj((Obj *)closure->fn);
@@ -151,7 +170,6 @@ static void blackenObj(Obj *obj) {
         }
         break;
     }
-
     case OBJ_FN: {
         ObjFn *fn = ((ObjFn *)obj);
         markObj((Obj *)fn->name);

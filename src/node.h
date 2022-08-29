@@ -6,6 +6,9 @@
 #include "value.h"
 
 typedef enum {
+    ND_CLASS_DECL,
+    ND_SUPER,
+    ND_METHOD,
     ND_FN_DECL,
     ND_PARAM,
     ND_VAR_DECL,
@@ -15,7 +18,6 @@ typedef enum {
     ND_CONTINUE,
     ND_IF,
     ND_BLOCK,
-    ND_PRINT,
     ND_EXPRESSION,
     ND_RETURN,
 
@@ -26,6 +28,8 @@ typedef enum {
     ND_AND,
     ND_OR,
     ND_UNARY,
+    ND_PROPERTY,
+    ND_THIS,
     ND_VAR,
     ND_TEMPLATE_HEAD,
     ND_TEMPLATE_SPAN,
@@ -53,6 +57,30 @@ typedef struct Node {
 
 Node *newNode(NodeType type, Token *token);
 
+#define NEW_CLASS_DECL(name, methods, heritage)                                \
+    newClassDeclarationNode(name, methods, heritage)
+
+static inline Node *newClassDeclarationNode(Token *name, Node *methods,
+                                            Node *heritage) {
+    Node *node = newNode(ND_CLASS_DECL, name);
+    node->thenBranch = methods;
+    node->operand = heritage;
+    return node;
+}
+
+#define NEW_SUPER(token) newNode(ND_SUPER, token)
+
+#define NEW_HERITAGE(token) newNode(ND_LITERAL, token)
+
+#define NEW_METHOD(token, params, body) newMethodNode(token, params, body)
+
+static inline Node *newMethodNode(Token *token, Node *params, Node *body) {
+    Node *node = newNode(ND_METHOD, token);
+    node->operand = params;
+    node->thenBranch = body;
+    return node;
+}
+
 #define NEW_FN_DECL(token, params, body)                                       \
     newFnDeclarationNode(token, params, body)
 
@@ -68,6 +96,7 @@ static inline Node *newFnDeclarationNode(Token *token, Node *params,
 
 static inline Node *newParamNode(Token *token) {
     Node *node = newNode(ND_PARAM, token);
+    node->next = NULL;
     return node;
 }
 
@@ -124,14 +153,6 @@ static inline Node *newIfNode(Token *token, Node *condition, Node *thenBranch,
 static inline Node *newBlockNode(Token *token, Node *stmts) {
     Node *node = newNode(ND_BLOCK, token);
     node->operand = stmts;
-    return node;
-}
-
-#define NEW_PRINT_STMT(token, expression) newPrintNode(token, expression)
-
-static inline Node *newPrintNode(Token *token, Node *express) {
-    Node *node = newNode(ND_PRINT, token);
-    node->operand = express;
     return node;
 }
 
@@ -220,17 +241,22 @@ static inline Node *newUnaryNode(Token *token, Node *operand) {
 
 static inline Node *newTemplateHeadNode(Token *token) {
     Node *node = newNode(ND_TEMPLATE_HEAD, token);
-    node->next = NULL;
+    node->operand = NULL;
     node->count = 0;
     return node;
 }
 
-#define NEW_VAR(token) newVarNode(token)
+#define NEW_PROPERTY(token, lhs) newPropertyNode(token, lhs)
 
-static inline Node *newVarNode(Token *token) {
-    Node *node = newNode(ND_VAR, token);
+static inline Node *newPropertyNode(Token *token, Node *lhs) {
+    Node *node = newNode(ND_PROPERTY, token);
+    node->lhs = lhs;
     return node;
 }
+
+#define NEW_THIS(token) newNode(ND_THIS, token)
+
+#define NEW_VAR(token) newNode(ND_VAR, token)
 
 #define NEW_TEMPLATE_SPAN(token, expression)                                   \
     newTemplateSpanNode(token, expression)

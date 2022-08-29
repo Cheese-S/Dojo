@@ -1,15 +1,15 @@
 var a = 0
 while (a < 6) {
-    print a
+    print(a)
     a = a + 1
 }
 
 while (a > 0) {
-    print a
+    print(a)
     a = a - 1
 }
 
 while (false)
-    print 5555
+    print(5555)
 
-print a
+print(a)

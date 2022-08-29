@@ -1,0 +1,28 @@
+class dojoGrandparent {
+    init() {
+        this.abc = "edf"
+    }
+
+    parent() {
+        print("I am the ancestor")
+    }
+
+    grandparent() {
+        print("grandparent")
+    }
+}
+
+class dojoParent extends dojoGrandparent {
+    init() {
+        this.abc = "cde"
+    }
+
+    parent() {
+        super.parent()
+        print("parent")
+    }
+}
+
+var parent = dojoParent()
+
+parent.parent()

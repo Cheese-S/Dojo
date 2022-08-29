@@ -23,9 +23,9 @@ typedef struct {
     Hashmap stringLiterals;
     Hashmap globals;
     ObjUpvalue *openUpvalues;
-    bool isREPL;
     int frameCount;
     int count;
+    ObjString *initString;
 } VM;
 
 typedef enum {
@@ -37,7 +37,7 @@ typedef enum {
 extern VM vm;
 
 InterpreterResult interpret(const char *source);
-void initVM(bool isREPL);
+void initVM();
 void push(Value value);
 Value pop();
 

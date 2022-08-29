@@ -1,0 +1,11 @@
+fn test() {
+    class test123 {
+        comment() {
+            print("comment")
+        }
+    }
+    var abc = test123()
+    abc.comment()
+}
+
+test()

@@ -3,6 +3,7 @@
 #define dojo_value_h
 
 #include "common.h"
+
 #include <stdint.h>
 #include <string.h>
 

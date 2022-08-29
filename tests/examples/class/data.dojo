@@ -1,0 +1,10 @@
+class dojo {
+}
+
+var dojoInstance = dojo()
+
+dojoInstance.abc = "abc"
+dojoInstance.cba = "cba"
+
+print(dojoInstance.abc)
+print(dojoInstance.cba)

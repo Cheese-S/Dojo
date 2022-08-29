@@ -36,7 +36,7 @@ typedef struct {
     int surrondingLoopScopeDepth;
 } LoopState;
 
-typedef enum { FN_SCRPIT, FN_FN } FnType;
+typedef enum { FN_SCRPIT, FN_FN, FN_METHOD, FN_INIT } FnType;
 
 typedef struct Compiler {
     FnType type;
@@ -49,6 +49,11 @@ typedef struct Compiler {
     struct Compiler *enclosing;
     Hashmap stringConstants;
 } Compiler;
+
+typedef struct ClassState {
+    struct ClassState *enclosing;
+    bool hasSuperClass;
+} ClassState;
 
 void initCompiler(Compiler *compiler, FnType type);
 ObjFn *terminateCompiler(Compiler *compiler);

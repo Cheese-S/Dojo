@@ -1,13 +1,13 @@
 // Dojo only considers 'nil', 'false', and '0' as falsey
 // Anything else if considered as truthy
 
-print !!0
-print !!nil
-print !!false
-print !!`String ${false}`
-print !!"String"
-print !0
-print !nil
-print !false
-print !`String ${false}`
-print !"String"
+print(!!0)
+print(!!nil)
+print(!!false)
+print(!!`String ${false}`)
+print(!!"String")
+print(!0)
+print(!nil)
+print(!false)
+print(!`String ${false}`)
+print(!"String")

@@ -1,6 +1,6 @@
 var a = 6
 var b = 7
 var c = `This is a template string ${a}`
-print a
-print b
-print c
+print(a)
+print(b)
+print(c)

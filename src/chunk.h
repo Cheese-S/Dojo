@@ -5,10 +5,14 @@
 #include "value.h"
 
 typedef enum {
+    OP_INHERIT,
+    OP_CLASS,
+    OP_METHOD,
     OP_CLOSURE,
+    OP_SUPER_INVOKE,
+    OP_INVOKE,
     OP_CALL,
     OP_RETURN,
-    OP_PRINT,
     // Variable
     OP_DEFINE_GLOBAL,
     OP_GET_GLOBAL,
@@ -18,6 +22,9 @@ typedef enum {
     OP_GET_UPVALUE,
     OP_SET_UPVALUE,
     OP_CLOSE_UPVALUE,
+    OP_GET_PROPERTY,
+    OP_SET_PROPERTY,
+    OP_GET_SUPER,
     // Jump
     OP_JUMP_IF_TRUE,
     OP_JUMP_IF_FALSE,

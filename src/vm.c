@@ -4,6 +4,7 @@
 #include "debug.h"
 #include "error.h"
 #include "hashmap.h"
+#include "memory.h"
 #include "object.h"
 #include "scanner.h"
 #include "value.h"
@@ -17,10 +18,14 @@ static void terminateVM();
 static InterpreterResult run();
 
 static Value makeStrTemplate(int numSpans);
+static bool invoke(ObjString *method, int argCount);
+static bool invokeFromClass(ObjClass *djClass, ObjString *name, int argCount);
 static bool call(Value callee, int argCount);
 static bool callClosure(ObjClosure *closure, int argCount);
 static bool callNativeFn(ObjNativeFn *fn, int argCount);
-static void defineNativeFn(const char *name, NativeFn fn);
+static void defineNativeFn(const char *name, NativeFn fn, int arity);
+static void defineMethod(ObjString *name);
+static bool bindMethod(ObjClass *djClass, ObjString *name);
 
 static void closeUpvalues(Value *last);
 static ObjUpvalue *captureUpvalue(Value *local);
@@ -31,14 +36,16 @@ static CallFrame *lastCallFrame();
 static void resetStack();
 static Value peek(int depth);
 
+static void defineNativeFns();
 static Value clockNative(int argCount, Value *args);
+static Value printNative(int argCount, Value *args);
 
 VM vm;
 
 InterpreterResult interpret(const char *source) {
     ObjFn *fn = compile(source);
     if (!fn) {
-        // TODO: free all the resources
+        terminateVM();
         return INTERPRET_COMPILE_ERROR;
     }
     push(OBJ_VAL(fn));
@@ -47,17 +54,23 @@ InterpreterResult interpret(const char *source) {
     push(OBJ_VAL(closure));
     callClosure(closure, 0);
     InterpreterResult res = run();
+    terminateVM();
     return res;
-    // terminateVM();
 }
 
-void initVM(bool isREPL) {
+void initVM() {
     resetStack();
+    initGC();
     initMap(&vm.stringLiterals);
     initMap(&vm.globals);
-    defineNativeFn("clock", clockNative);
     vm.objs = NULL;
-    vm.isREPL = isREPL;
+    vm.initString = newObjString("init", 4);
+    defineNativeFns();
+}
+
+static void defineNativeFns() {
+    defineNativeFn("clock", clockNative, 0);
+    defineNativeFn("print", printNative, 1);
 }
 
 static void terminateVM() {
@@ -65,6 +78,7 @@ static void terminateVM() {
     freeMap(&vm.stringLiterals);
     freeMap(&vm.globals);
     terminateScanner();
+    terminateGC();
 }
 
 static InterpreterResult run() {
@@ -79,16 +93,42 @@ static InterpreterResult run() {
 #define READ_STRING() (AS_STRING(READ_CONSTANT()))
 #define ARITHEMETIC_BINARY_OP(valueType, op)                                   \
     do {                                                                       \
+        if (!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))) {                      \
+            runtimeError("Operands must be numbers ");                         \
+            return INTERPRET_RUNTIME_ERROR;                                    \
+        }                                                                      \
         double b = AS_NUMBER(pop());                                           \
         double a = AS_NUMBER(pop());                                           \
         push(valueType(a op b));                                               \
     } while (false)
 
     for (;;) {
-        // disassembleInstruction(&frame->closure->fn->chunk,
-        //                        (int)(ip - frame->closure->fn->chunk.codes));
+#ifdef DEBUG_LOG_BYTECODE
+        disassembleInstruction(&frame->closure->fn->chunk,
+                               (int)(ip - frame->closure->fn->chunk.codes));
+#endif
         uint8_t instruction = READ_BYTE();
         switch (instruction) {
+        case OP_INHERIT: {
+            Value super = peek(1);
+            if (!IS_CLASS(super)) {
+                SAVE_IP_REGISTER;
+                runtimeError("Superclass must be a class");
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            ObjClass *sub = AS_CLASS(peek(0));
+            mapPutAll(&AS_CLASS(super)->methods, &sub->methods);
+            pop();
+            break;
+        }
+        case OP_CLASS: {
+            push(OBJ_VAL(newObjClass(READ_STRING())));
+            break;
+        }
+        case OP_METHOD: {
+            defineMethod(READ_STRING());
+            break;
+        }
         case OP_CLOSURE: {
             ObjFn *fn = AS_FN(READ_CONSTANT());
             ObjClosure *closure = newObjClosure(fn);
@@ -102,6 +142,29 @@ static InterpreterResult run() {
                     closure->upvalues[i] = frame->closure->upvalues[index];
                 }
             }
+            break;
+        }
+        case OP_SUPER_INVOKE: {
+            ObjString *method = READ_STRING();
+            int argCount = READ_BYTE();
+            ObjClass *superclass = AS_CLASS(pop());
+            SAVE_IP_REGISTER;
+            if (!invokeFromClass(superclass, method, argCount)) {
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            frame = &vm.frames[vm.frameCount - 1];
+            LOAD_IP_REGISTER;
+            break;
+        }
+        case OP_INVOKE: {
+            ObjString *method = READ_STRING();
+            int argCount = READ_BYTE();
+            SAVE_IP_REGISTER;
+            if (!invoke(method, argCount)) {
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            frame = &vm.frames[vm.frameCount - 1];
+            LOAD_IP_REGISTER;
             break;
         }
         case OP_CALL: {
@@ -185,6 +248,50 @@ static InterpreterResult run() {
             pop();
             break;
         }
+        case OP_GET_PROPERTY: {
+            if (!IS_INSTANCE(peek(0))) {
+                SAVE_IP_REGISTER;
+                runtimeError("Only instances have properties.");
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            ObjInstance *instance = AS_INSTANCE(peek(0));
+            ObjString *name = READ_STRING();
+
+            Value value;
+            if (mapGet(&instance->fields, name, &value)) {
+                pop(); // Instance.
+                push(value);
+                break;
+            }
+
+            if (!bindMethod(instance->djClass, name)) {
+                SAVE_IP_REGISTER;
+                runtimeError("Undefined property '%.*s'", name->length,
+                             name->str);
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            break;
+        }
+        case OP_SET_PROPERTY: {
+            if (!IS_INSTANCE(peek(0))) {
+                SAVE_IP_REGISTER;
+                runtimeError("Only instances have properties.");
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            ObjInstance *instance = AS_INSTANCE(peek(0));
+            mapPut(&instance->fields, READ_STRING(), peek(1));
+            pop();
+            break;
+        }
+        case OP_GET_SUPER: {
+            ObjString *name = READ_STRING();
+            ObjClass *superclass = AS_CLASS(pop());
+
+            if (!bindMethod(superclass, name)) {
+                return INTERPRET_RUNTIME_ERROR;
+            }
+            break;
+        }
         case OP_LOOP: {
             uint16_t jump = READ_SHORT();
             ip -= jump;
@@ -207,11 +314,6 @@ static InterpreterResult run() {
             if (isFalsey(peek(0))) {
                 ip += jump;
             }
-            break;
-        }
-        case OP_PRINT: {
-            printValue(pop());
-            printf("\n");
             break;
         }
         case OP_EQUAL: {
@@ -313,9 +415,54 @@ static InterpreterResult run() {
 #undef LOAD_IP_REGISTER
 }
 
+static bool invoke(ObjString *name, int argCount) {
+    Value receiver = peek(argCount);
+
+    if (!IS_INSTANCE(receiver)) {
+        runtimeError("Only instances have methods.");
+        return false;
+    }
+    ObjInstance *instance = AS_INSTANCE(receiver);
+
+    Value value;
+    if (mapGet(&instance->fields, name, &value)) {
+        vm.stackTop[-argCount - 1] = value;
+        return call(value, argCount);
+    }
+
+    return invokeFromClass(instance->djClass, name, argCount);
+}
+
+static bool invokeFromClass(ObjClass *djClass, ObjString *name, int argCount) {
+    Value method;
+
+    if (!mapGet(&djClass->methods, name, &method)) {
+        runtimeError("Undefined property '%.*s'.", name->length, name->str);
+        return false;
+    }
+    return callClosure(AS_CLOSURE(method), argCount);
+}
+
 static bool call(Value callee, int argCount) {
     if (IS_OBJ(callee)) {
         switch (OBJ_TYPE(callee)) {
+        case OBJ_CLASS: {
+            ObjClass *djClass = AS_CLASS(callee);
+            vm.stackTop[-argCount - 1] = OBJ_VAL(newObjInstance(djClass));
+            Value init;
+            if (mapGet(&djClass->methods, vm.initString, &init)) {
+                return callClosure(AS_CLOSURE(init), argCount);
+            } else if (argCount != 0) {
+                runtimeError("Expected 0 arguments but got %d.", argCount);
+                return false;
+            }
+            return true;
+        }
+        case OBJ_BOUND_METHOD: {
+            ObjBoundMethod *method = AS_BOUND_METHOD(callee);
+            vm.stackTop[-argCount - 1] = method->receiver;
+            return callClosure(method->method, argCount);
+        }
         case OBJ_CLOSURE:
             return callClosure(AS_CLOSURE(callee), argCount);
         case OBJ_NATIVE_FN: {
@@ -364,9 +511,27 @@ static bool callNativeFn(ObjNativeFn *fn, int argCount) {
     return true;
 }
 
-static void defineNativeFn(const char *name, NativeFn native) {
+static void defineMethod(ObjString *name) {
+    Value method = peek(0);
+    ObjClass *djClass = AS_CLASS(peek(1));
+    mapPut(&djClass->methods, name, method);
+    pop();
+}
+
+static bool bindMethod(ObjClass *djClass, ObjString *name) {
+    Value method;
+    if (!mapGet(&djClass->methods, name, &method)) {
+        return false;
+    }
+    ObjBoundMethod *bound = newObjBoundMethod(peek(0), AS_CLOSURE(method));
+    pop();
+    push(OBJ_VAL(bound));
+    return true;
+}
+
+static void defineNativeFn(const char *name, NativeFn native, int arity) {
     push(newObjStringInVal(name, (int)strlen(name)));
-    push(OBJ_VAL(newObjNativeFn(native)));
+    push(OBJ_VAL(newObjNativeFn(native, arity)));
     mapPut(&vm.globals, AS_STRING(vm.stack[0]), vm.stack[1]);
     pop();
     pop();
@@ -459,4 +624,10 @@ static Value peek(int depth) {
 
 static Value clockNative(int argCount, Value *args) {
     return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
+}
+
+static Value printNative(int argCount, Value *args) {
+    printValue(*args);
+    printf("\n");
+    return NIL_VAL;
 }

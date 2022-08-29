@@ -40,7 +40,6 @@ typedef enum {
     TOKEN_TRUE,
     TOKEN_FALSE,
     TOKEN_NIL,
-    TOKEN_PRINT,
     TOKEN_IF,
     TOKEN_ELSE,
     TOKEN_WHILE,
@@ -49,6 +48,7 @@ typedef enum {
     TOKEN_CONTINUE,
     TOKEN_THIS,
     TOKEN_CLASS,
+    TOKEN_EXTENDS,
     TOKEN_SUPER,
     TOKEN_FN,
     TOKEN_RETURN,
@@ -69,5 +69,6 @@ typedef struct Token {
 void initScanner(const char *source);
 void terminateScanner();
 Token *nextToken();
+Token syntheticToken(const char *str, int length);
 
 #endif

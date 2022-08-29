@@ -1,0 +1,13 @@
+class dojo {
+    init(comment) {
+        this.comment = comment
+    }
+
+    printComment() {
+        print(this.comment)
+    }
+}
+
+var dojoInstance = dojo("hello world")
+
+dojoInstance.printComment()

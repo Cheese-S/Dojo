@@ -3,8 +3,8 @@ var b = 6
 {
     var b = 7
     b = 8
-    print b
+    print(b)
 
     a = 6
 }
-print a
+print(a)

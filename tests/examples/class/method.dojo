@@ -1,0 +1,22 @@
+class dojo {
+    abc() {
+        print("abc")
+    }
+
+    cba() {
+        print ("cba")
+    }
+}
+
+fn cde() {
+    print ("cde")
+}
+
+var dojoInstance = dojo()
+
+dojoInstance.abc()
+dojoInstance.cba()
+
+dojoInstance.abc = cde
+
+dojoInstance.abc()

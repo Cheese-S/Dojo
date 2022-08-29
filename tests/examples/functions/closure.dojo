@@ -5,7 +5,7 @@ fn main() {
   {
     var a = "one"
     fn one() {
-      print a
+      print(a)
     }
     globalOne = one
   }
@@ -13,13 +13,13 @@ fn main() {
   {
     var a = "two"
     fn two() {
-      print a
+      print(a)
     }
     globalTwo = two
   }
 }
 
 main() // define two closures
-globalOne() // print out one
-globalTwo() // print out two
+globalOne() // print(out one)
+globalTwo() // print(out two)
 

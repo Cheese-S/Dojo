@@ -1,7 +1,7 @@
-print -5
-print -15.5
-print --15.5
-print !false
-print !!false
-print !!!false
-print !!!!true
+print(-5)
+print(-15.5)
+print(--15.5)
+print(!false)
+print(!!false)
+print(!!!false)
+print(!!!!true)

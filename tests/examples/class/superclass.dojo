@@ -1,0 +1,23 @@
+class dojoGrandparent {
+    grandparent() {
+        print("grandparent")
+    }
+}
+
+class dojoParent extends dojoGrandparent {
+    parent() {
+        print("parent")
+    }
+}
+
+class dojoChild extends dojoParent {
+    child() {
+        print("child")
+    }
+}
+
+var childInstance = dojoChild()
+
+childInstance.grandparent()
+childInstance.parent()
+childInstance.child() 

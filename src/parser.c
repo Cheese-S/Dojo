@@ -46,6 +46,9 @@ static void appendToNext(Node **tail, Node *stmt);
 /* -------------------------------- STATEMENT ------------------------------- */
 
 static Node *declaration();
+static Node *classDeclaration();
+static Node *heritage();
+static Node *method();
 static Node *fnDeclaration();
 static Node *parameters();
 static Node *varDeclaration();
@@ -64,7 +67,6 @@ static Node *branch();
 static Node *chainBlockStmt();
 static Node *blockStmt();
 static Node *parseBlock();
-static Node *printStmt();
 static Node *returnStmt();
 static Node *expressionStmt();
 
@@ -73,7 +75,10 @@ static void expectStmtEnd(const char *str);
 /* ------------------------------- EXPRESSION ------------------------------- */
 
 static Node *expression();
+static Node *property();
+static Node *invocation(Token *property);
 static Node *call();
+static Node *super_();
 static Node *arguments();
 static Node *grouping();
 static Node *assignment();
@@ -82,6 +87,7 @@ static Node *and_();
 static Node *or_();
 static Node *binary();
 static Node *unary();
+static Node *this_();
 static Node *variable();
 static Node *stringTemplate();
 static Node *string();
@@ -107,7 +113,7 @@ ParseRule rules[] = {
     [TOKEN_LEFT_BRACE] = {NULL, NULL, PREC_NONE},
     [TOKEN_RIGHT_BRACE] = {NULL, NULL, PREC_NONE},
     [TOKEN_COMMA] = {NULL, NULL, PREC_NONE},
-    [TOKEN_DOT] = {NULL, NULL, PREC_NONE},
+    [TOKEN_DOT] = {NULL, property, PREC_CALL},
     [TOKEN_MINUS] = {unary, binary, PREC_TERM},
     [TOKEN_PLUS] = {NULL, binary, PREC_TERM},
     [TOKEN_NEWLINE] = {NULL, NULL, PREC_NONE},
@@ -128,6 +134,7 @@ ParseRule rules[] = {
     [TOKEN_NUMBER] = {number, NULL, PREC_NONE},
     [TOKEN_AND] = {NULL, and_, PREC_AND},
     [TOKEN_CLASS] = {NULL, NULL, PREC_NONE},
+    [TOKEN_EXTENDS] = {NULL, NULL, PREC_NONE},
     [TOKEN_ELSE] = {NULL, NULL, PREC_NONE},
     [TOKEN_FALSE] = {literal, NULL, PREC_NONE},
     [TOKEN_FOR] = {NULL, NULL, PREC_NONE},
@@ -135,10 +142,9 @@ ParseRule rules[] = {
     [TOKEN_IF] = {NULL, NULL, PREC_NONE},
     [TOKEN_NIL] = {literal, NULL, PREC_NONE},
     [TOKEN_OR] = {NULL, or_, PREC_OR},
-    [TOKEN_PRINT] = {NULL, NULL, PREC_NONE},
     [TOKEN_RETURN] = {NULL, NULL, PREC_NONE},
-    [TOKEN_SUPER] = {NULL, NULL, PREC_NONE},
-    [TOKEN_THIS] = {NULL, NULL, PREC_NONE},
+    [TOKEN_SUPER] = {super_, NULL, PREC_NONE},
+    [TOKEN_THIS] = {this_, NULL, PREC_NONE},
     [TOKEN_TRUE] = {literal, NULL, PREC_NONE},
     [TOKEN_VAR] = {NULL, NULL, PREC_NONE},
     [TOKEN_WHILE] = {NULL, NULL, PREC_NONE},
@@ -193,7 +199,9 @@ static void appendToNext(Node **tail, Node *stmt) {
 
 static Node *declaration() {
     Node *decl;
-    if (match(TOKEN_VAR)) {
+    if (match(TOKEN_CLASS)) {
+        decl = classDeclaration();
+    } else if (match(TOKEN_VAR)) {
         decl = varDeclaration();
     } else if (match(TOKEN_FN)) {
         decl = fnDeclaration();
@@ -206,12 +214,54 @@ static Node *declaration() {
     return decl;
 }
 
+static Node *classDeclaration() {
+    consume(TOKEN_IDENTIFIER, "Expect an identifier after 'class'.");
+    Token *name = parser.previous;
+    Node *super = heritage();
+    consume(TOKEN_LEFT_BRACE, "Expect a '{' before class body");
+    skipNewlines();
+    Node *head = NULL;
+    Node *tail = head;
+    while (!check(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
+        Node *current = method();
+        if (!head) {
+            head = current;
+            tail = head;
+            tail->next = NULL;
+        } else {
+            appendToNext(&tail, current);
+        }
+    }
+    consume(TOKEN_RIGHT_BRACE, "Expect a '}' after class body");
+    expectStmtEnd("Expect a newline character after a class declaration");
+    return NEW_CLASS_DECL(name, head, super);
+}
+
+static Node *heritage() {
+    if (match(TOKEN_EXTENDS)) {
+        consume(TOKEN_IDENTIFIER, "Expect an identifer after 'extends'.");
+        return NEW_HERITAGE(parser.previous);
+    }
+    return NULL;
+}
+
+static Node *method() {
+    consume(TOKEN_IDENTIFIER, "Expect method name.");
+    Token *name = parser.previous;
+    Node *params = parameters();
+    consume(TOKEN_LEFT_BRACE, "Expect a '{' after params list.");
+    Node *body = parseBlock();
+    expectStmtEnd("Expect a newline character after a method decalration");
+    return NEW_METHOD(name, params, body);
+}
+
 static Node *fnDeclaration() {
     consume(TOKEN_IDENTIFIER, "Expect an identifier after 'fn'.");
     Token *fnName = parser.previous;
     Node *params = parameters();
     consume(TOKEN_LEFT_BRACE, "Expect a '{' after params list");
     Node *body = parseBlock();
+    expectStmtEnd("Expect a newline character after a function declaration");
     return NEW_FN_DECL(fnName, params, body);
 }
 
@@ -229,6 +279,7 @@ static Node *parameters() {
         Node *param = NEW_PARAM(ident);
         if (!tail) {
             head = tail = param;
+            tail->next = NULL;
         } else {
             appendToNext(&tail, param);
         }
@@ -261,12 +312,11 @@ static Node *stmt() {
         return ifStmt();
     } else if (match(TOKEN_LEFT_BRACE)) {
         return blockStmt();
-    } else if (match(TOKEN_PRINT)) {
-        return printStmt();
     } else if (match(TOKEN_RETURN)) {
         return returnStmt();
+    } else {
+        return expressionStmt();
     }
-    { return expressionStmt(); }
 }
 
 static Node *forStmt() {
@@ -394,22 +444,14 @@ static Node *parseBlock() {
         if (head) {
             appendToNext(&tail, decl);
         } else {
-            head = decl;
-            tail = head;
+            tail = head = decl;
+            tail->next = NULL;
         }
     }
 
     consume(TOKEN_RIGHT_BRACE, "Expect '}' at the end of a block statement");
     Node *block = NEW_BLOCK_STMT(token, head);
     return block;
-}
-
-static Node *printStmt() {
-    // TODO: Replace print stmt with native function
-    Token *token = parser.previous;
-    Node *express = expression();
-    expectStmtEnd("Expect a newline character after a print statement");
-    return NEW_PRINT_STMT(token, express);
 }
 
 static Node *returnStmt() {
@@ -423,7 +465,7 @@ static Node *returnStmt() {
 }
 
 static Node *expressionStmt() {
-    Token *token = parser.previous;
+    Token *token = parser.current;
     Node *express = expression();
     expectStmtEnd("Expect a newline character after a expression statement");
     return NEW_EXPRESS_STMT(token, express);
@@ -445,6 +487,12 @@ static Node *call(Node *lhs) {
     return NEW_CALL(token, lhs, args);
 }
 
+static Node *super_() {
+    consume(TOKEN_DOT, "Expect '.' after 'super'.");
+    consume(TOKEN_IDENTIFIER, "Execpt an identifer after '.'.");
+    return NEW_SUPER(parser.previous);
+}
+
 static Node *arguments() {
     Node *head = NULL;
     Node *tail = head;
@@ -453,6 +501,7 @@ static Node *arguments() {
             Node *arg = expression();
             if (!tail) {
                 head = tail = arg;
+                tail->next = NULL;
             } else {
                 appendToNext(&tail, arg);
             }
@@ -506,18 +555,33 @@ static Node *unary() {
     return NEW_UNARY(op, operand);
 }
 
+static Node *this_() {
+    return NEW_THIS(parser.previous);
+}
+
 static Node *variable() {
     return NEW_VAR(parser.previous);
 }
 
+static Node *property(Node *lhs) {
+    consume(TOKEN_IDENTIFIER, "Expect property name after '.'");
+    return NEW_PROPERTY(parser.previous, lhs);
+}
+
 static Node *stringTemplate() {
     Node *head = NEW_TEMPLATE_HEAD(parser.previous);
-    Node *tail = head;
+    Node *tail = head->operand;
 
     while (parser.previous->type != TOKEN_AFTER_TEMPLATE) {
         Node *express = expression();
         Node *span = NEW_TEMPLATE_SPAN(parser.current, express);
-        appendToNext(&tail, span);
+        if (tail) {
+            appendToNext(&tail, span);
+        } else {
+            tail = span;
+            head->operand = tail;
+            tail->next = NULL;
+        }
         head->count++;
         advance();
     }
@@ -621,7 +685,6 @@ static void synchronize() {
         case TOKEN_FOR:
         case TOKEN_IF:
         case TOKEN_WHILE:
-        case TOKEN_PRINT:
         case TOKEN_RETURN:
         case TOKEN_BREAK:
         case TOKEN_CONTINUE:

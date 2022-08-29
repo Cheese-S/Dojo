@@ -2,28 +2,17 @@
 
 source "$( dirname -- "$( readlink -f -- "$0"; )"; )/assert.sh"
 
-suite "Number Literal"
+suite "literals"
 
-assert 5 "print 5"
-assert 42 "print 42"
-assert 36.9 "print 36.9"
+assertFile "tests/examples/literals/literal.dojo" 'false
+true
+nil
+5
+5.5
+Of course it ignores whitespace as well!
+multiline
+string'
 
-suite "Boolean Literal"
+suite "string template should interpolate expressions and strings properly"
 
-assert "false" "print false"
-assert "true" "print true"
-assert "nil" "print nil"
-
-
-suite "String Literal"
-
-assert "string" 'print '\"'string'\"
-assert "" 'print '\"\"
-assert "" 'print '\`\`
-assert "true" 'print '\`'string'\`'=='\`'string'\`
-assert "true" 'print '\"'string'\"'=='\"'string'\"
-
-suite "Template String"
-
-assert "head false mid true end" 'print '\`'head ${false} mid ${true} end'\`
-assert "head 8 mid 1 end" 'print '\`'head ${'\`'${5 + 3}'\`'} mid ${'\`'${3 - 2}'\`'} end'\`
+assertFile "tests/examples/literals/string_template.dojo" 'This is a template string false it works! true see for yourself 4.25 dojo'

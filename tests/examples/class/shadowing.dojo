@@ -1,0 +1,45 @@
+class dojoGrandparent {
+    init() {
+        this.abc = "edf"
+    }
+
+    grandparent() {
+        print("grandparent")
+    }
+}
+
+class dojoParent extends dojoGrandparent {
+    init() {
+        this.abc = "cde"
+    }
+
+    parent() {
+        print("parent")
+    }
+}
+
+class dojoChild extends dojoParent {
+    init() {
+        this.abc = "abc"
+    }
+
+    child() {
+        print("child")
+    }
+
+    parent() {
+        print("still child")
+    }
+
+    grandparent() {
+        print("nope still child")
+    }
+}
+
+var childInstance = dojoChild()
+
+childInstance.child() 
+childInstance.parent()
+childInstance.grandparent()
+
+print(childInstance.abc)

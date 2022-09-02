@@ -55,22 +55,6 @@ static void repl() {
             break;
         }
         interpret(line);
-        // Token Scan Code
-        // initScanner(line);
-        // int prevLine = -1;
-        // for (;;) {
-        //     Token *token = nextToken();
-        //     if (token->line != prevLine) {
-        //         printf("%4d ", token->line);
-        //         prevLine = token->line;
-        //     } else {
-        //         printf("   | ");
-        //     }
-        //     printf("%2d '%.*s'\n", token->type, token->length, token->start);
-
-        //     if (token->type == TOKEN_EOF)
-        //         break;
-        // }
     }
 }
 

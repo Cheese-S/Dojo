@@ -1,10 +1,8 @@
-<div style="text-align: center; height: 256px;">
+<div style="text-align: center; transform: scale(0.5, 0.5)">
   <img src="./dojo.png"/>
 </div>
-<div style="text-align: center">
-    <h1>
-        Dojo
-    </h1>
+<div style="text-align: center; font-size: 3em">
+    Dojo
 </div>
 
 

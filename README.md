@@ -1,10 +1,7 @@
-<div style="text-align: center; transform: scale(0.5, 0.5)">
-  <img src="./dojo.png"/>
-</div>
-<div style="text-align: center; font-size: 3em">
-    Dojo
-</div>
 
+#Dojo
+
+![Dojo's logo](dojo.png)
 
 ## What is Dojo?
  

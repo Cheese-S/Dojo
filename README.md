@@ -1,5 +1,9 @@
+<div style="text-align: center; transform: scale(.5);">
+  <img src="https://github.com/Cheese-S/dojo.png"/>
+</div>
+
 # Dojo
- 
+
 ## What is Dojo?
  
 Dojo is a dynamic scripting language that runs on a bytecode machine. As long as the platform can compile C, it can also run DOJO!

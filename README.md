@@ -1,8 +1,12 @@
-<div style="text-align: center; transform: scale(.5);">
-  <img src="https://github.com/Cheese-S/dojo.png"/>
+<div style="text-align: center; height: 256px;">
+  <img src="./dojo.png"/>
+</div>
+<div style="text-align: center">
+    <h1>
+        Dojo
+    </h1>
 </div>
 
-# Dojo
 
 ## What is Dojo?
  

@@ -1,7 +1,8 @@
 
-#Dojo
-
-![Dojo's logo](dojo.png)
+<p align="center">
+  <img width="256" height="256" src="./dojo.png">
+  <h1 align="center">Dojo</h1>
+</p>
 
 ## What is Dojo?
  
